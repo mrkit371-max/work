@@ -104,9 +104,13 @@ const allExercises = () => [...loadCustom(), ...EXERCISES];
 const findExercise = (name) => allExercises().find((e) => e.name === name);
 
 /* ---------- СОСТОЯНИЕ И ХРАНИЛИЩЕ ---------- */
-const LS_KEY = 'wt_workouts_v1';
+const LS_KEY = 'wt_workouts_v2';
 let workouts = [];
-try { workouts = JSON.parse(localStorage.getItem(LS_KEY) || '[]'); } catch { workouts = []; }
+try {
+  // старая версия хранилища содержала демо-данные — удаляем её
+  localStorage.removeItem('wt_workouts_v1');
+  workouts = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+} catch { workouts = []; }
 
 const save = () => {
   try { localStorage.setItem(LS_KEY, JSON.stringify(workouts)); }
@@ -1031,28 +1035,5 @@ $('#a2hsClose').addEventListener('click', () => { $('#a2hs').hidden = true; sess
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(() => { /* dev server w/o sw */ });
 }
-if (!workouts.length) seedWorkouts();
 render();
 window.addEventListener('resize', () => { if (state.view === 'progress') render(); });
-
-/* Демо-данные при первом запуске */
-function seedWorkouts() {
-  const t = todayISO();
-  const d1 = new Date(parseISO(t)); d1.setDate(d1.getDate() + 2);
-  const d2 = new Date(parseISO(t)); d2.setDate(d2.getDate() - 3);
-  workouts.push({
-    id: uid(), date: isoDate(d1), title: 'Верх тела', type: 'Силовая', done: false, notes: '', dayHits: 0,
-    exercises: [
-      { name: 'Подтягивания', sets: [{ w: 0, r: 8, done: 0, doneDate: null }, { w: 0, r: 8, done: 0, doneDate: null }, { w: 0, r: 6, done: 0, doneDate: null }] },
-      { name: 'Отжимания', sets: [{ w: 0, r: 15, done: 0, doneDate: null }, { w: 0, r: 12, done: 0, doneDate: null }] },
-    ],
-  });
-  workouts.push({
-    id: uid(), date: isoDate(d2), title: 'Ноги и пресс', type: 'Силовая', done: true, notes: 'Отличная сессия', dayHits: 0,
-    exercises: [
-      { name: 'Приседания (свой вес)', sets: [{ w: 0, r: 20, done: 1, doneDate: isoDate(d2) }, { w: 0, r: 15, done: 1, doneDate: isoDate(d2) }] },
-      { name: 'Планка', sets: [{ w: 0, r: 60, done: 1, doneDate: isoDate(d2) }] },
-    ],
-  });
-  save();
-}
