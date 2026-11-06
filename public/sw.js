@@ -1,5 +1,5 @@
 /* Сервис-воркер: офлайн-кэш приложения */
-const CACHE = 'fitness-pwa-v1';
+const CACHE = 'fitness-pwa-v2';
 const ASSETS = [
   './',
   './index.html',

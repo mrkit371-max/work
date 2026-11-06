@@ -1033,7 +1033,19 @@ $('#a2hsClose').addEventListener('click', () => { $('#a2hs').hidden = true; sess
 
 /* ---------------- СТАРТ ---------------- */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(() => { /* dev server w/o sw */ });
+  const hadController = !!navigator.serviceWorker.controller;
+  // при смене контролирующего воркера (обновление) — перезагружаем страницу, чтобы взять свежие файлы
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return;
+    if (sessionStorage.getItem('sw_reloaded') === '1') return;
+    sessionStorage.setItem('sw_reloaded', '1');
+    location.reload();
+  });
+  navigator.serviceWorker.register('./sw.js').then(async () => {
+    // сразу проверяем обновления воркера, не дожидаясь следующего визита
+    const reg = await navigator.serviceWorker.getRegistration();
+    reg?.update?.();
+  }).catch(() => { /* dev server w/o sw */ });
 }
 render();
 window.addEventListener('resize', () => { if (state.view === 'progress') render(); });
