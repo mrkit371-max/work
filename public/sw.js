@@ -29,7 +29,7 @@ self.addEventListener('fetch', (e) => {
   const heavy = /\.(png|jpe?g|webp|ico)$/i.test(url.pathname); // картинки — cache-first
   const strategy = (isCacheFirst) =>
     caches.match(e.request).then((cached) => {
-      const network = fetch(e.request)
+      const network = fetch(e.request, { cache: 'reload' })
         .then((res) => {
           const ok = res && res.ok && url.origin === location.origin;
           if (ok) {

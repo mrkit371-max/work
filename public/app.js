@@ -17,6 +17,15 @@ const MON_SHORT = ['янв','фев','мар','апр','май','июн','июл
 const DOW = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
 const WA_TYPE = ['Силовая', 'Кардио', 'Растяжка'];
 const uid = () => 'w' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+/* дата в человеческом виде: «10 ноя», «10 ноя 2025» (если прошлый год) */
+const fmtDate = (iso) => {
+  if (!iso) return '';
+  const d = parseISO(iso);
+  const now = new Date();
+  return `${d.getDate()} ${MON_SHORT[d.getMonth()]}${d.getFullYear() !== now.getFullYear() ? ` ${d.getFullYear()}` : ''}`;
+};
+/* короткая дата для графиков: «10.11» */
+const fmtDateShort = (iso) => { const [y, m, d] = iso.split('-'); return `${d}.${m}`; };
 
 /* ---------- КАТАЛОГ МЫШЦ ---------- */
 const MUSCLES = {
@@ -162,7 +171,7 @@ const jbtn = (label, onClick, cls = 'btn') => {
   return b;
 };
 
-function modal(inner, { buildBody, actionLabel, onAction, onClose, wide } = {}) {
+function modal(inner, { buildBody, actionLabel, onAction, onClose, confirmClose, wide } = {}) {
   if (!inner) return null;
   const host = $('#modalHost');
   host.hidden = false;
@@ -177,14 +186,17 @@ function modal(inner, { buildBody, actionLabel, onAction, onClose, wide } = {}) 
   `;
   host.appendChild(layer);
   layer.appendChild(sheet);
-  const close = () => { layer.remove(); if (!host.children.length) host.hidden = true; onClose && onClose(); };
+  const rawClose = () => { layer.remove(); if (!host.children.length) host.hidden = true; onClose && onClose(); };
+  /* пользовательское закрытие (фон, ✕, Отмена): confirmClose может отменить и запросить подтверждение */
+  const close = () => { if (confirmClose && confirmClose(rawClose)) return; rawClose(); };
   const bk = document.createElement('div');
   bk.className = 'modal-backdrop';
   layer.insertBefore(bk, sheet);
   bk.addEventListener('click', close);
   $$('[data-close]', layer).forEach((x) => x.addEventListener('click', close));
-  if (onAction) $('#modalAction', layer).addEventListener('click', () => onAction(close));
+  if (onAction) $('#modalAction', layer).addEventListener('click', () => onAction(rawClose));
   if (buildBody) buildBody($('#modalBody', layer));
+  setTimeout(() => { const f = $('input, select, textarea', sheet); if (f) f.focus(); }, 30);
   return close;
 }
 
@@ -200,7 +212,7 @@ function wc(w, small) {
     </div>
     <div class="wc-meta">${ex}</div>
     <div class="wc-actions">
-      <button class="btn tiny done-btn">${w.done ? 'Снять отметку' : 'Отметить выполнение'}</button>
+      <button class="btn tiny done-btn">${w.done ? 'Снять отметку' : 'Выполнил'}</button>
       <button class="btn tiny">Редактировать</button>
       <button class="btn tiny subtle">Удалить</button>
     </div>`;
@@ -280,22 +292,20 @@ function viewCalendar() {
   }
   dl.appendChild(sec);
 
-  // краткая сводка недели
+  // краткая сводка недели (цель может быть не задана — тогда без «X/Y»)
   const wk = weekStats();
+  const goal = state.profile.goal || 0;
   const bar = el('section', 'sec');
-  bar.innerHTML = `<div class="sec-title">Неделя: выполнено ${wk.done}/5</div>
-    <div class="meter"><i style="width:${Math.min(100, Math.round((wk.done / 5) * 100))}%"></i></div>`;
-  if (wk.done >= 5) {
+  bar.innerHTML = `<div class="sec-title">Неделя: выполнено ${wk.done}${goal ? `/${goal}` : ''}</div>
+    ${goal ? `<div class="meter"><i style="width:${Math.min(100, Math.round((wk.done / goal) * 100))}%"></i></div>` : ''}`;
+  if (goal && wk.done >= goal) {
     const note = document.createElement('p');
     note.className = 'hint';
-    note.innerHTML = '🎉 Цель 5 тренировок — выполнена! Можете добавить ещё одну.';
+    note.innerHTML = `🎉 Цель ${goal} ${goal === 1 ? 'тренировка' : (goal < 5 ? 'тренировки' : 'тренировок')} — выполнена! Можете добавить ещё одну.`;
     bar.appendChild(note);
     const b = jbtn('+ Добавить бонусную', () => addWorkout(state.dayISO));
     bar.appendChild(b);
   }
-  const chart = el('div', 'chart-holder');
-  weeklyChart(chart);
-  bar.appendChild(chart);
   dl.appendChild(bar);
 }
 
@@ -355,16 +365,17 @@ function renderDayInto() {
   const bar = el('section', 'sec');
   bar.innerHTML = `
     <div class="sec-title">Объём недели</div>
-    <div class="stat-grid"><div class="stat"><b id="statSets">0</b><span>сетов на неделе</span></div><div class="stat"><b id="statUpd">0</b><span>снято отметок</span></div></div>`;
+    <div class="stat-grid"><div class="stat"><b id="statSets">0</b><span>сетов выполнено на неделе</span></div><div class="stat" id="statGoal"></div></div>`;
   const chart = el('div', 'chart-holder');
   weeklyChart(chart);
   bar.appendChild(chart);
   dev.appendChild(sec);
   dev.appendChild(bar);
   const week = weekSets();
-  const s = $('#statSets'), u = $('#statUpd');
+  const s = $('#statSets');
   if (s) s.textContent = week.doneSets;
-  if (u) u.textContent = week.unDone;
+  const g = $('#statGoal');
+  if (g) { const gd = state.profile.goal || 0; g.innerHTML = `<b>${weekStats().done}${gd ? `/${gd}` : ''}</b><span>тренировок выполнено за неделю</span>`; }
 }
 
 /* ---------------- ГРАФИКИ ---------------- */
@@ -372,22 +383,81 @@ function weeklyChart(container) {
   const now = new Date();
   const mon = new Date(now);
   mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
-  const labels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  const labels = DOW;
   const vals = labels.map((_, i) => {
     const d = new Date(mon); d.setDate(d.getDate() + i);
     return forDay(isoDate(d)).some((w) => w.done) ? 1 : 0;
   });
-  const W = 240, H = 90, bw = 22, gap = (W - 7 * bw) / 6;
+  const todayIdx = (now.getDay() + 6) % 7;
+  const W = 240, H = 100, bw = 24, gap = (W - 7 * bw) / 6;
+  const baseY = 76; // низ столбцов; подписи начинаются ниже и не налезают на «капли»
   let svg = `<svg viewBox="0 0 ${W} ${H}" class="wchart" role="img" aria-label="Тренировки по дням недели">`;
   vals.forEach((v, i) => {
-    const x = i * (bw + gap), y = v ? 8 : H - 18;
-    svg += `<rect x="${x}" y="${v ? y : H - 18}" width="${bw}" height="${v ? H - 18 - y : 10}" rx="4"
-      fill="${v ? 'var(--ok)' : 'var(--border)'}" opacity="${v ? 1 : 0.7}"></rect>
-      <text x="${x + bw / 2}" y="${H - 4}" text-anchor="middle" class="wchart-t">${labels[i]}</text>`;
+    const d = new Date(mon); d.setDate(d.getDate() + i);
+    const x = i * (bw + gap);
+    const h = v ? baseY - 10 : 10; // выполненный день — высокий столб, обычный — низкая «капля»
+    const y = baseY - h;
+    svg += `<rect x="${x}" y="${y}" width="${bw}" height="${h}" rx="5"
+      fill="${v ? 'var(--ok)' : 'var(--border)'}" opacity="${v ? 1 : 0.7}">
+      <title>${d.getDate()} ${MON_SHORT[d.getMonth()]} (${labels[i]}): ${v ? 'тренировка выполнена' : 'нет выполненных'}</title></rect>
+      <text x="${x + bw / 2}" y="${H - 6}" text-anchor="middle" class="wchart-t"
+        font-size="${i === todayIdx ? 10 : 9}" fill="${i === todayIdx ? 'var(--text)' : 'var(--muted)'}">${labels[i]}</text>`;
   });
   svg += '</svg>';
   container.innerHTML = svg;
 }
+
+/* ---------------- Готовые наборы и автоназвание ---------------- */
+const TRICEPS_EX = ['Французский жим', 'Отжимания на брусьях'];
+const BICEPS_EX = ['Подъём штанги на бицепс'];
+const TEMPLATES = {
+  'Грудь + Трицепс': ['Отжимания', 'Жим штанги лёжа', 'Французский жим', 'Отжимания на брусьях'],
+  'Спина + Бицепс': ['Подтягивания', 'Тяга верхнего блока', 'Тяга штанги в наклоне', 'Подъём штанги на бицепс'],
+  'Ноги': ['Приседания со штангой', 'Румынская тяга', 'Выпады', 'Подъём на носки'],
+  'Плечи': ['Жим гантелей вверх', 'Махи в стороны'],
+  'Пресс': ['Планка', 'Скручивания', 'Велосипед'],
+  'Кардио': ['Бег / джоггинг', 'Скакалка'],
+  'Всё тело': ['Отжимания', 'Подтягивания', 'Приседания (свой вес)', 'Планка'],
+};
+const defaultSets = (name) => {
+  const lib = findExercise(name);
+  return Array.from({ length: 3 }, () => ({ w: 0, r: lib?.unit === 'time' ? 60 : 12, done: 0, doneDate: null }));
+};
+const autoTitle = (draft) => {
+  const cats = new Set(draft.exercises.map((e) => findExercise(e.name)?.cat).filter(Boolean));
+  if (!cats.size) return '';
+  const labels = new Set();
+  for (const c of cats) {
+    if (c === 'Руки') {
+      const names = draft.exercises.map((e) => e.name);
+      const tri = names.some((n) => TRICEPS_EX.includes(n));
+      const bi = names.some((n) => BICEPS_EX.includes(n));
+      labels.add(tri && bi ? 'Руки' : tri ? 'Трицепс' : bi ? 'Бицепс' : 'Руки');
+    } else labels.add(c);
+  }
+  const arr = [...labels];
+  if (arr.length === 1) return arr[0];
+  if (arr.length === 2) return arr.join(' + ');
+  if (arr.every((l) => ['Грудь', 'Спина', 'Плечи', 'Бицепс', 'Трицепс', 'Руки'].includes(l))) return 'Верх тела';
+  if (arr.includes('Ноги') && arr.some((l) => l !== 'Ноги')) return 'Всё тело';
+  return arr.join(' + ');
+};
+const applyAutoMeta = (draft) => {
+  const cats = new Set(draft.exercises.map((e) => findExercise(e.name)?.cat).filter(Boolean));
+  if (!cats.size) return;
+  const allCardio = [...cats].every((c) => c === 'Кардио');
+  draft.type = allCardio ? 'Кардио' : 'Силовая';
+  if (!draft.titleManual) {
+    const t = autoTitle(draft);
+    if (t) {
+      draft.title = t;
+      const inp = $('#wfTitle');
+      if (inp) inp.value = t;
+    }
+  }
+  const sel = $('#wfType');
+  if (sel) sel.value = draft.type;
+};
 
 /* ---------------- РЕДАКТОР ТРЕНИРОВКИ ---------------- */
 const addWorkout = (day) => openEditor({ id: null, date: day, title: '', type: 'Силовая', notes: '', done: false, exercises: [] });
@@ -401,11 +471,20 @@ function editWorkout(id) {
 function openEditor(src) {
   const draft = JSON.parse(JSON.stringify(src));
   if (!draft.id) draft.id = uid();
+  applyAutoMeta(draft); // нормализуем до снимка: окно, где ничего не меняли, не должно требовать подтверждения
+  const snapshot = JSON.stringify(draft); // база для проверки «были ли изменения»
   state.editing = draft;
   const isEdit = !!src.id;
   const close = modal(isEdit ? 'Редактировать тренировку' : 'Новая тренировка', {
     actionLabel: 'Сохранить',
     onClose: () => { state.editing = null; render(); },
+    /* фон / ✕ / «Отмена» при наличии несохранённых правок — предупреждаем */
+    confirmClose: (rawClose) => {
+      if (!state.editing) return false;
+      if (JSON.stringify(draft) === snapshot) { state.editing = null; return false; }
+      confirmDialog('Закрыть без сохранения?', 'Изменения в тренировке не сохранятся.', () => { state.editing = null; rawClose(); }, 'Не сохранять');
+      return true;
+    },
     onAction: (doClose) => {
       const setErr = (msg) => { const box = $('#modalErr'); if (box) { box.hidden = false; box.textContent = msg; } };
       const title = $('#wfTitle')?.value.trim() || '';
@@ -431,14 +510,24 @@ function openEditor(src) {
         <div class="row">
           <select class="inp" id="wfType">${WA_TYPE.map((t) => `<option ${draft.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
         </div>
-        <p class="hint">Выбранный день: <b class="inline-date">${esc(draft.date)}</b> (<button class="linky" id="leftMove">‹ сдвинуть</button> / <button class="linky" id="rightMove">сдвинуть ›</button>)</p>
+        <p class="hint">Выбранный день: <b class="inline-date">${esc(fmtDate(draft.date))}</b> (<button class="linky" id="leftMove">‹ день назад</button> / <button class="linky" id="rightMove">день вперёд ›</button>)</p>
         <label class="lb"><textarea id="wfNotes" class="inp" rows="2" placeholder="Заметки (необязательно)">${esc(draft.notes)}</textarea></label>
         <div class="sec-title" style="margin-top:14px">Упражнения</div>
+        <div class="chips" id="tplChips">${Object.keys(TEMPLATES).map((k) => `<button class="chip" type="button">${k}</button>`).join('')}</div>
         <div id="exList"></div>
         <button class="btn subtle wide" id="addEx">+ Добавить упражнение</button>
       `;
-      $('#leftMove', body).addEventListener('click', () => { const x = parseISO(draft.date); x.setDate(x.getDate() - 1); draft.date = isoDate(x); $('.inline-date', body).textContent = draft.date; });
-      $('#rightMove', body).addEventListener('click', () => { const x = parseISO(draft.date); x.setDate(x.getDate() + 1); draft.date = isoDate(x); $('.inline-date', body).textContent = draft.date; });
+      $('#leftMove', body).addEventListener('click', () => { const x = parseISO(draft.date); x.setDate(x.getDate() - 1); draft.date = isoDate(x); $('.inline-date', body).textContent = fmtDate(draft.date); });
+      $('#rightMove', body).addEventListener('click', () => { const x = parseISO(draft.date); x.setDate(x.getDate() + 1); draft.date = isoDate(x); $('.inline-date', body).textContent = fmtDate(draft.date); });
+      $$('#tplChips .chip', body).forEach((chip) => chip.addEventListener('click', () => {
+        draft.exercises = (TEMPLATES[chip.textContent] || []).map((name) => ({ name, sets: defaultSets(name) }));
+        draft.titleManual = false;
+        drawExList(body, draft);
+      }));
+      $('#wfTitle', body).addEventListener('input', () => {
+        draft.titleManual = $('#wfTitle', body).value.trim().length > 0;
+      });
+      applyAutoMeta(draft);
       drawExList(body, draft);
       $('#addEx', body).addEventListener('click', () => addExPick(body, draft));
     },
@@ -447,6 +536,7 @@ function openEditor(src) {
 }
 
 function drawExList(body, draft) {
+  applyAutoMeta(draft);
   const exList = $('#exList', body);
   exList.innerHTML = '';
   if (!draft.exercises.length) {
@@ -459,7 +549,7 @@ function drawExList(body, draft) {
     const card = el('div', 'ex-block');
     card.innerHTML = `
       <div class="ex-head">
-        <b>${esc(ex.name)}</b>
+        <b class="ex-open" title="Показать технику выполнения">${esc(ex.name)}</b>
         <button class="uni-x ex-del" data-i="${i}" aria-label="Удалить упражнение">✕</button>
       </div>
       ${lib ? `<p class="hint">${lib.tips[0]}</p>` : ''}
@@ -467,6 +557,7 @@ function drawExList(body, draft) {
       <button class="btn tiny subtle addSet" data-i="${i}">+ подход</button>
     `;
     exList.appendChild(card);
+    if (lib) $('.ex-open', card).addEventListener('click', () => openExDetail(lib, { hideAdd: true }));
     const wrap = $('.sets', card);
     ex.sets.forEach((s, si) => {
       const row = el('div', 'set-row');
@@ -496,13 +587,20 @@ function drawExList(body, draft) {
 }
 
 function addExPick(body, draft) {
+  // прячем редактор, пока открыт подборщик — чтобы не мелькал на фоне
+  const editorLayer = body.closest('.modal-layer');
+  const showEditor = () => { if (editorLayer) editorLayer.style.display = ''; drawExList(body, draft); };
+  if (editorLayer) editorLayer.style.display = 'none';
+
   const closePick = modal('Выберите упражнение', {
+    onClose: showEditor,
     buildBody: (b2) => {
       b2.innerHTML = `
         <input class="inp" id="pickSearch" placeholder="Поиск упражнения…" value="${esc(state.libSearch)}">
-        <div class="chips" id="pickCats">${['Все', 'Грудь', 'Спина', 'Ноги', 'Плечи', 'Руки', 'Пресс', 'Кардио', 'Другое'].map((c) => `<button class="chip ${c === state.libCat ? 'chip-on' : ''}">${c}</button>`).join('')}</div>
+        <div class="chips" id="pickCats">${['Все', 'Грудь', 'Спина', 'Ноги', 'Плечи', 'Руки', 'Пресс', 'Кардио'].map((c) => `<button class="chip ${c === state.libCat ? 'chip-on' : ''}">${c}</button>`).join('')}</div>
         <div id="pickList"></div>
         <button class="btn subtle wide" id="addCustom">+ Создать своё упражнение</button>`;
+      b2.classList.add('pick-body'); // фиксированная высота: окно не «съезжает» при смене категории
       const draw = () => {
         const q = $('#pickSearch', b2).value.toLowerCase();
         const list = $('#pickList', b2);
@@ -511,82 +609,123 @@ function addExPick(body, draft) {
           (state.libCat === 'Все' || e.cat === state.libCat) &&
           (e.name.toLowerCase().includes(q) || (e.tips && e.tips.join(' ').toLowerCase().includes(q))));
         if (!items.length) list.innerHTML = '<p class="hint">Ничего не найдено.</p>';
-        const hl = {};
-        for (const it of items) for (const m in it.muscles) hl[m] = Math.max(hl[m] || 0, it.muscles[m]);
-        list.appendChild(muscleFigure(hl));
+        list.appendChild(muscleFigure({})); // изначально серый; подсвечивается при наведении на упражнение
         for (const it of items) {
           const row = document.createElement('button');
           row.className = 'ex-item';
           row.innerHTML = `<span class="ex-name">${esc(it.name)}</span><span class="pill pill-gray">${esc(it.cat)}</span>`;
           row.addEventListener('click', () => {
             draft.exercises.push({ name: it.name, sets: [{ w: 0, r: 0, done: 0, doneDate: null }] });
-            closePick(); drawExList(body, draft);
+            closePick(); // onClose подборщика → показать редактор с обновлённым списком
           });
           row.addEventListener('mouseenter', () => renderPickPreview(list, it.muscles));
-          row.addEventListener('mouseleave', () => renderPickPreview(list, hl));
+          row.addEventListener('mouseleave', () => renderPickPreview(list, {}));
           list.appendChild(row);
         }
-        $('#addCustom', b2).addEventListener('click', () => { closePick(); pickCustom(() => { addExPick(body, draft); }); });
       };
+      // вне draw(): кнопка живёт вне перерисовываемого списка — иначе слушатели копятся
+      $('#addCustom', b2).addEventListener('click', () => {
+        closePick();
+        // после сохранения новое упражнение сразу попадает в тренировку, затем возвращаемся к редактору
+        customEditor(null, (name) => {
+          if (name) draft.exercises.push({ name, sets: [{ w: 0, r: 0, done: 0, doneDate: null }] });
+          showEditor();
+        });
+      });
       $('#pickSearch', b2).addEventListener('input', () => { state.libSearch = $('#pickSearch', b2).value; draw(); });
-      $$('#pickCats .chip', b2).forEach((c) => c.addEventListener('click', () => { state.libCat = c.textContent; draw(); }));
+      $$('#pickCats .chip', b2).forEach((c) => c.addEventListener('click', () => {
+        state.libCat = c.textContent;
+        $$('#pickCats .chip', b2).forEach((x) => x.classList.toggle('chip-on', x === c));
+        draw();
+      }));
       draw();
     },
   }, true);
+  // поднимаем подборщик повыше и помечаем слой для CSS
+  const pickerLayer = [...document.querySelectorAll('.modal-layer')].pop();
+  if (pickerLayer) pickerLayer.classList.add('picker-layer');
 }
 
 function renderPickPreview(list, map) {
   const old = $('.mfig', list);
-  old?.remove();
   const d = muscleFigure(map);
-  if (old) list.insertBefore(d, old); else list.prepend(d);
+  if (old) old.replaceWith(d); else list.prepend(d);
 }
 
-function pickCustom(after) {
-  modal('Своё упражнение', {
-    actionLabel: 'Добавить',
-    onAction: (doClose) => {
-      const cat = $('#exCat2')?.value || 'Другое';
-      const name = $('#exName2')?.value.trim();
-      const target = $('#exTargetBox')?.value;
-      if (!name) { const p = $('#modalErr'); p.hidden = false; p.textContent = 'Введите название.'; return; }
-      const custom = { name, cat, unit: cat === 'Кардио' ? 'time' : 'reps', muscles: cat === 'Другое' ? {} : target === '1' ? TARGET_SOFT[cat] || TARGET[cat] : TARGET[cat], tips: ['Техника важнее веса'] };
+/* Редактор своего упражнения: название, категория, тип подходов, описание (4 параметра техники), выбор мышц на манекене */
+function customEditor(existingName, after) {
+  const orig = existingName ? loadCustom().find((x) => x.name === existingName) : null;
+  const draft = orig
+    ? JSON.parse(JSON.stringify(orig))
+    : { name: '', cat: 'Грудь', unit: 'weight', muscles: {}, tips: ['', '', '', ''] };
+  const DEFAULT_TIPS = ['Техника важнее веса', 'Дышите ровно', 'Умеренный темп', 'Без резких движений'];
+  let dirty = false; // что-то вводили/меняли мышцами? → подтверждаем закрытие
+  modal(orig ? 'Изменить упражнение' : 'Своё упражнение', {
+    actionLabel: 'Сохранить',
+    onClose: () => { dirty = false; },
+    confirmClose: (raw) => {
+      if (!dirty) return false;
+      confirmDialog('Закрыть без сохранения?', 'Упражнение не будет сохранено.', () => { dirty = false; raw(); }, 'Не сохранять');
+      return true;
+    },
+    onAction: (raw) => {
+      const setErr = (m) => { const p = $('#modalErr'); if (p) { p.hidden = false; p.textContent = m; } };
+      const name = $('#cuName')?.value.trim();
+      const cat = $('#cuCat')?.value || 'Грудь';
+      const unit = $('#cuUnit')?.value || 'weight';
+      if (!name) { setErr('Введите название.'); return; }
+      if (name.toLowerCase() !== (existingName || '').toLowerCase() &&
+          allExercises().some((e) => e.name.toLowerCase() === name.toLowerCase())) {
+        setErr('Такое упражнение уже есть.'); return;
+      }
+      const tips = [0, 1, 2, 3].map((i) => $('#cuT' + i)?.value.trim() || DEFAULT_TIPS[i]);
+      const entry = { name, cat, unit, muscles: { ...draft.muscles }, tips, custom: true };
       const cus = loadCustom();
-      if (cus.some((x) => x.name.toLowerCase() === name.toLowerCase())) { const p = $('#modalErr'); p.hidden = false; p.textContent = 'Такое упражнение уже есть.'; return; }
-      cus.push(custom);
+      if (orig) {
+        const idx = cus.findIndex((x) => x.name === existingName);
+        cus[idx] = entry;
+        // переименовываем в уже существующих тренировках
+        if (existingName !== name) {
+          for (const w of workouts) for (const e of w.exercises) if (e.name === existingName) e.name = name;
+          save();
+        }
+      } else cus.push(entry);
       try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(cus)); } catch { /* ignore */ }
       state.libCat = cat;
-      doClose();
-      after && after();
+      dirty = false;
+      raw();
+      after && after(name);
     },
     buildBody: (b) => {
       b.innerHTML = `
         <p class="form-error" id="modalErr" hidden></p>
-        <label class="lb">Название<input class="inp" id="exName2" maxlength="50" placeholder="Например: Гиперэкстензия"></label>
-        <label class="lb">Категория
-          <select class="inp" id="exCat2">${['Грудь','Спина','Ноги','Плечи','Руки','Пресс','Кардио','Другое'].map((c) => `<option>${c}</option>`).join('')}</select>
-        </label>
-        <div id="exTargetWrap">
-          <label class="lb">Роль мышц
-            <select class="inp" id="exTargetBox"><option value="0">Основные</option><option value="1">Второстепенные</option></select>
+        <label class="lb">Название<input class="inp" id="cuName" maxlength="50" placeholder="Например: Гиперэкстензия" value="${esc(draft.name)}"></label>
+        <div class="row2">
+          <label class="lb">Категория
+            <select class="inp" id="cuCat">${['Грудь','Спина','Ноги','Плечи','Руки','Пресс','Кардио'].map((c) => `<option ${draft.cat === c ? 'selected' : ''}>${c}</option>`).join('')}</select>
           </label>
-          <p class="hint">Для категории «Другое» карта мышц будет пустой — такое упражнение считается общим.</p>
-        </div>`;
-      const syncTarget = () => {
-        $('#exTargetWrap', b).hidden = $('#exCat2', b).value === 'Другое';
-      };
-      $('#exCat2', b).addEventListener('change', syncTarget);
-      syncTarget();
+          <label class="lb">Формат записи
+            <select class="inp" id="cuUnit">
+              <option value="weight" ${draft.unit === 'weight' ? 'selected' : ''}>Вес × повторы</option>
+              <option value="reps" ${draft.unit === 'reps' ? 'selected' : ''}>Повторы</option>
+              <option value="time" ${draft.unit === 'time' ? 'selected' : ''}>Время (сек)</option>
+            </select>
+          </label>
+        </div>
+        <div class="sec-title" style="margin:10px 0 4px">Описание выполнения</div>
+        <label class="lb">Старт<input class="inp" id="cuT0" maxlength="80" placeholder="Исходное положение" value="${esc(draft.tips[0] || '')}"></label>
+        <label class="lb">Дыхание<input class="inp" id="cuT1" maxlength="80" placeholder="Когда вдыхать / выдыхать" value="${esc(draft.tips[1] || '')}"></label>
+        <label class="lb">Темп<input class="inp" id="cuT2" maxlength="80" placeholder="Скорость движения" value="${esc(draft.tips[2] || '')}"></label>
+        <label class="lb">Типичная ошибка<input class="inp" id="cuT3" maxlength="80" placeholder="Чего избегать" value="${esc(draft.tips[3] || '')}"></label>
+        <div class="sec-title" style="margin:10px 0 4px">Задействованные мышцы</div>
+        <div id="cuPicker"></div>`;
+      b.addEventListener('input', () => { dirty = true; });
+      b.addEventListener('change', () => { dirty = true; });
+      mountMusclePicker($('#cuPicker', b), draft.muscles);
+      $('#cuPicker', b).addEventListener('click', () => { dirty = true; });
     },
-  });
+  }, true);
 }
-
-const TARGET = {
-  'Грудь': { chest: 1 }, 'Спина': { lats: 1 }, 'Ноги': { quads: 1 }, 'Плечи': { deltF: 1 }, 'Руки': { biceps: 1 }, 'Пресс': { abs: 1 }, 'Кардио': { calves: 0.5 }, 'Другое': {},
-};
-const TARGET_SOFT = {
-  'Грудь': { chest: 0.6 }, 'Спина': { lats: 0.6 }, 'Ноги': { quads: 0.6 }, 'Плечи': { deltF: 0.6 }, 'Руки': { biceps: 0.6 }, 'Пресс': { abs: 0.6 }, 'Кардио': { calves: 0.4 }, 'Другое': {},
-};
 
 /* ---------------- КАТАЛОГ УПРАЖНЕНИЙ ---------------- */
 function viewLibrary() {
@@ -598,28 +737,46 @@ function viewLibrary() {
     </div><div class="topbar-r"><button class="btn tiny" id="addCust">+ Своё</button></div></header>
     <div class="lib-controls">
       <input class="inp" id="libSearch" placeholder="Поиск…" value="${esc(state.libSearch)}">
-      <div class="chips" id="libCats">${['Все','Грудь','Спина','Ноги','Плечи','Руки','Пресс','Кардио','Другое'].map((c) => `<button class="chip ${c === state.libCat ? 'chip-on':''}">${c}</button>`).join('')}</div>
+      <div class="chips" id="libCats">${['Все','Грудь','Спина','Ноги','Плечи','Руки','Пресс','Кардио'].map((c) => `<button class="chip ${c === state.libCat ? 'chip-on':''}">${c}</button>`).join('')}</div>
     </div>
     <div class="figfix" id="figFix"></div>
     <div id="libList" class="daylist"></div>`;
-  $('#addCust').addEventListener('click', () => pickCustom(() => render()));
+  $('#addCust').addEventListener('click', () => customEditor(null, () => render()));
   const draw = () => {
     const q = state.libSearch.toLowerCase();
+    if (state.libCat === 'Другое') state.libCat = 'Все';
     const list = $('#libList');
     list.innerHTML = '';
     const items = allExercises().filter((e) => (state.libCat === 'Все' || e.cat === state.libCat) && (e.name.toLowerCase().includes(q) || e.tips.join(' ').toLowerCase().includes(q)));
     if (!items.length) list.appendChild(el('div', 'empty', '<p>Ничего не найдено</p>'));
-    const hl = {};
-    for (const it of items) for (const m in it.muscles) hl[m] = Math.max(hl[m] || 0, it.muscles[m]);
     $('#figFix').classList.add('on');
     $('#figFix').innerHTML = '';
-    $('#figFix').appendChild(muscleFigure(hl));
+    $('#figFix').appendChild(muscleFigure({})); // изначально серый; подсветка — при наведении на упражнение
     for (const it of items) {
-      const row = document.createElement('button');
-      row.className = 'ex-item';
-      row.innerHTML = `<span class="ex-name">${esc(it.name)}</span><span class="pill pill-gray">${esc(it.cat)}</span>`;
+      const row = el('button', 'ex-item');
+      row.innerHTML = `<span class="ex-name">${esc(it.name)}</span><span class="ex-extra"></span><span class="pill pill-gray">${esc(it.cat)}</span>`;
+      const extra = $('.ex-extra', row);
+      if (it.custom) {
+        const editB = el('button', 'uni-x ex-mini');
+        editB.textContent = '✎';
+        editB.title = 'Изменить упражнение';
+        editB.addEventListener('click', (ev) => { ev.stopPropagation(); customEditor(it.name, () => render()); });
+        const delB = el('button', 'uni-x ex-mini');
+        delB.textContent = '🗑';
+        delB.title = 'Удалить упражнение';
+        delB.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          confirmDialog('Удалить упражнение?', `«${it.name}» будет удалено из справочника (в сохранённых тренировках останется).`, () => {
+            const cus = loadCustom().filter((x) => x.name !== it.name);
+            localStorage.setItem(CUSTOM_KEY, JSON.stringify(cus));
+            render();
+          });
+        });
+        extra.appendChild(editB);
+        extra.appendChild(delB);
+      }
       row.addEventListener('mouseenter', () => { $('#figFix').innerHTML = ''; $('#figFix').appendChild(muscleFigure(it.muscles)); });
-      row.addEventListener('mouseleave', () => { $('#figFix').innerHTML = ''; $('#figFix').appendChild(muscleFigure(hl)); });
+      row.addEventListener('mouseleave', () => { $('#figFix').innerHTML = ''; $('#figFix').appendChild(muscleFigure({})); });
       row.addEventListener('click', () => openExDetail(it));
       list.appendChild(row);
     }
@@ -629,7 +786,7 @@ function viewLibrary() {
   draw();
 }
 
-function openExDetail(ex) {
+function openExDetail(ex, { hideAdd } = {}) {
   modal(ex.name, {
     buildBody: (b) => {
       b.innerHTML = `
@@ -641,7 +798,8 @@ function openExDetail(ex) {
           <div class="tech-row"><b>Темп:</b><span>${esc(ex.tips[2])}</span></div>
           <div class="tech-row"><b>Ошибка:</b><span>${esc(ex.tips[3])}</span></div>
         </div>
-        <button class="btn primary wide" id="addToday">Добавить в тренировку на ${esc(state.dayISO)}</button>`;
+        ${hideAdd ? '' : `<button class="btn primary wide" id="addToday">Добавить в тренировку на ${esc(fmtDate(state.dayISO))}</button>`}
+        ${ex.custom ? '<div class="row2" style="margin-top:8px"><button class="btn subtle wide" id="exEdit">✎ Изменить</button><button class="btn danger wide" id="exDelBtn">🗑 Удалить</button></div>' : ''}`;
       $('#exMap', b).appendChild(muscleFigure(ex.muscles));
       const ml = $('#exMuscles', b);
       ml.innerHTML = '';
@@ -651,7 +809,7 @@ function openExDetail(ex) {
         row.innerHTML = `<span class="mname">${esc(MUSCLES[id]?.name || id)}</span><span class="mbadge ${v >= 0.8 ? 'hi' : ''}">${v >= 0.8 ? 'целевая' : 'вспомогательная'}</span>`;
         ml.appendChild(row);
       }
-      $('#addToday', b).addEventListener('click', () => {
+      if (!hideAdd) $('#addToday', b).addEventListener('click', () => {
         let w = forDay(state.dayISO)[0];
         if (!w) {
           w = { id: uid(), date: state.dayISO, title: `${ex.cat}: ${ex.name}`, type: ex.cat === 'Кардио' ? 'Кардио' : 'Силовая', notes: '', done: false, exercises: [] };
@@ -662,125 +820,150 @@ function openExDetail(ex) {
         close();
         editWorkout(w.id);
       });
+      if (ex.custom) {
+        $('#exEdit', b).addEventListener('click', () => { close(); customEditor(ex.name, () => render()); });
+        $('#exDelBtn', b).addEventListener('click', () => {
+          confirmDialog('Удалить упражнение?', `«${ex.name}» будет удалено из справочника (в сохранённых тренировках останется).`, () => {
+            localStorage.setItem(CUSTOM_KEY, JSON.stringify(loadCustom().filter((x) => x.name !== ex.name)));
+            close();
+            render();
+          });
+        });
+      }
     },
   });
 }
 
 /* ---------------- SVG ГРУППЫ МЫШЦ ---------------- */
-function muscleFigure(map = {}) {
-  const maxV = Math.max(0.0001, ...Object.values(map));
-  const col = (v) => {
+const FRONT_PATHS = [
+  ['deltF', 'M62,78 Q50,86 54,104 Q66,110 76,102 L76,78 Z'],
+  ['deltF', 'M138,78 Q150,86 146,104 Q134,110 124,102 L124,78 Z'],
+  ['chest', 'M76,76 Q86,70 100,70 Q114,70 124,76 L120,104 Q100,114 80,104 Z'],
+  ['abs', 'M86,110 Q100,106 114,110 L112,158 Q100,166 88,158 Z'],
+  ['oblique', 'M80,106 Q84,134 82,158 L74,152 Q74,122 76,100 Z'],
+  ['oblique', 'M120,106 Q116,134 118,158 L126,152 Q126,122 124,100 Z'],
+  ['biceps', 'M52,108 Q44,130 48,150 Q56,156 62,152 L58,112 Z'],
+  ['biceps', 'M148,108 Q156,130 152,150 Q144,156 138,152 L142,112 Z'],
+  ['forearm', 'M46,152 Q40,176 44,196 Q50,202 56,198 L54,152 Z'],
+  ['forearm', 'M154,152 Q160,176 156,196 Q150,202 144,198 L146,152 Z'],
+  ['quads', 'M72,168 Q58,220 66,268 Q80,276 92,266 L92,172 Q82,168 72,168 Z'],
+  ['quads', 'M128,168 Q142,220 134,268 Q120,276 108,266 L108,172 Q118,168 128,168 Z'],
+  ['calves', 'M72,272 Q64,300 70,326 Q80,332 88,324 L88,272 Z'],
+  ['calves', 'M128,272 Q136,300 130,326 Q120,332 112,324 L112,272 Z'],
+];
+const BACK_PATHS = [
+  ['traps', 'M70,64 Q100,80 130,64 L124,84 Q100,96 76,84 Z'],
+  ['deltR', 'M58,80 Q46,90 52,106 Q64,112 74,102 L72,80 Z'],
+  ['deltR', 'M142,80 Q154,90 148,106 Q136,112 126,102 L128,80 Z'],
+  ['lats', 'M76,88 Q100,100 124,88 L120,140 Q100,130 80,140 Z'],
+  ['lowback', 'M88,140 Q100,146 112,140 L110,168 Q100,174 90,168 Z'],
+  ['triceps', 'M50,110 Q42,132 46,152 Q54,158 60,154 L56,112 Z'],
+  ['triceps', 'M150,110 Q158,132 154,152 Q146,158 140,154 L144,112 Z'],
+  ['forearm', 'M44,154 Q38,178 42,198 Q48,204 54,200 L52,154 Z'],
+  ['forearm', 'M156,154 Q162,178 158,198 Q152,204 146,200 L148,154 Z'],
+  ['glutes', 'M78,172 Q58,186 62,206 Q74,216 92,208 L92,178 Q84,174 78,172 Z'],
+  ['glutes', 'M122,172 Q142,186 138,206 Q126,216 108,208 L108,178 Q116,174 122,172 Z'],
+  ['hams', 'M72,212 Q62,248 70,278 Q80,284 90,276 L90,214 Q80,212 72,212 Z'],
+  ['hams', 'M128,212 Q138,248 130,278 Q120,284 110,276 L110,214 Q120,212 128,212 Z'],
+  ['calves', 'M72,282 Q64,308 70,330 Q80,336 88,328 L88,282 Z'],
+  ['calves', 'M128,282 Q136,308 130,330 Q120,336 112,328 L112,282 Z'],
+];
+const HEAD_SVG = '<circle cx="100" cy="34" r="22" fill="var(--m0)" stroke="var(--mstroke)" stroke-width="2"/>';
+
+function buildMuscleSvg(map = {}, { interactive } = {}) {
+  const fillFor = (v) => {
+    if (!v) return 'var(--m0)';
+    if (interactive) return `color-mix(in srgb, var(--hl) ${v >= 1 ? 100 : 55}%, var(--m0))`;
+    const maxV = Math.max(0.0001, ...Object.values(map));
     const t = Math.min(1, Math.max(0, (v / maxV) * 0.85 + 0.15));
     return `color-mix(in srgb, var(--hl) ${Math.round(t * 100)}%, var(--m0))`;
   };
-  const pFront = (id, path) => `<path d="${path}" fill="${map[id] ? col(map[id]) : 'var(--m0)'}" stroke="var(--mstroke)" stroke-width="2"/>`;
-  const frontBody = `
-    <circle cx="100" cy="34" r="22" fill="var(--m0)" stroke="var(--mstroke)" stroke-width="2"/>
-    ${pFront('deltF', 'M62,78 Q50,86 54,104 Q66,110 76,102 L76,78 Z')}
-    ${pFront('deltF', 'M138,78 Q150,86 146,104 Q134,110 124,102 L124,78 Z')}
-    ${pFront('chest', 'M76,76 Q86,70 100,70 Q114,70 124,76 L120,104 Q100,114 80,104 Z')}
-    ${pFront('abs', 'M86,110 Q100,106 114,110 L112,158 Q100,166 88,158 Z')}
-    ${pFront('oblique', 'M80,106 Q84,134 82,158 L74,152 Q74,122 76,100 Z')}
-    ${pFront('oblique', 'M120,106 Q116,134 118,158 L126,152 Q126,122 124,100 Z')}
-    ${pFront('biceps', 'M52,108 Q44,130 48,150 Q56,156 62,152 L58,112 Z')}
-    ${pFront('biceps', 'M148,108 Q156,130 152,150 Q144,156 138,152 L142,112 Z')}
-    ${pFront('forearm', 'M46,152 Q40,176 44,196 Q50,202 56,198 L54,152 Z')}
-    ${pFront('forearm', 'M154,152 Q160,176 156,196 Q150,202 144,198 L146,152 Z')}
-    ${pFront('quads', 'M72,168 Q58,220 66,268 Q80,276 92,266 L92,172 Q82,168 72,168 Z')}
-    ${pFront('quads', 'M128,168 Q142,220 134,268 Q120,276 108,266 L108,172 Q118,168 128,168 Z')}
-    ${pFront('calves', 'M72,272 Q64,300 70,326 Q80,332 88,324 L88,272 Z')}
-    ${pFront('calves', 'M128,272 Q136,300 130,326 Q120,332 112,324 L112,272 Z')}
-  `;
-  const backBody = `
-    <circle cx="100" cy="34" r="22" fill="var(--m0)" stroke="var(--mstroke)" stroke-width="2"/>
-    ${pFront('traps', 'M70,64 Q100,80 130,64 L124,84 Q100,96 76,84 Z')}
-    ${pFront('deltR', 'M58,80 Q46,90 52,106 Q64,112 74,102 L72,80 Z')}
-    ${pFront('deltR', 'M142,80 Q154,90 148,106 Q136,112 126,102 L128,80 Z')}
-    ${pFront('lats', 'M76,88 Q100,100 124,88 L120,140 Q100,130 80,140 Z')}
-    ${pFront('lowback', 'M88,140 Q100,146 112,140 L110,168 Q100,174 90,168 Z')}
-    ${pFront('triceps', 'M50,110 Q42,132 46,152 Q54,158 60,154 L56,112 Z')}
-    ${pFront('triceps', 'M150,110 Q158,132 154,152 Q146,158 140,154 L144,112 Z')}
-    ${pFront('forearm', 'M44,154 Q38,178 42,198 Q48,204 54,200 L52,154 Z')}
-    ${pFront('forearm', 'M156,154 Q162,178 158,198 Q152,204 146,200 L148,154 Z')}
-    ${pFront('glutes', 'M78,172 Q58,186 62,206 Q74,216 92,208 L92,178 Q84,174 78,172 Z')}
-    ${pFront('glutes', 'M122,172 Q142,186 138,206 Q126,216 108,208 L108,178 Q116,174 122,172 Z')}
-    ${pFront('hams', 'M72,212 Q62,248 70,278 Q80,284 90,276 L90,214 Q80,212 72,212 Z')}
-    ${pFront('hams', 'M128,212 Q138,248 130,278 Q120,284 110,276 L110,214 Q120,212 128,212 Z')}
-    ${pFront('calves', 'M72,282 Q64,308 70,330 Q80,336 88,328 L88,282 Z')}
-    ${pFront('calves', 'M128,282 Q136,308 130,330 Q120,336 112,328 L112,282 Z')}
-  `;
-  const fig = (side, body, label) => `
+  const paths = (arr) => arr.map(([id, d]) =>
+    `<path d="${d}"${interactive ? ` data-m="${id}"` : ''} fill="${fillFor(map[id])}" stroke="var(--mstroke)" stroke-width="2"/>`).join('');
+  const fig = (body, label) => `
     <div class="mfig-col">
-      <svg viewBox="0 0 200 360" class="mfig-svg" role="img" aria-label="Схема мышц: ${label}">${body}</svg>
+      <svg viewBox="0 0 200 360" class="mfig-svg${interactive ? '' : ''}" role="img" aria-label="Схема мышц: ${label}">${HEAD_SVG}${paths(body)}</svg>
       <div class="mfig-cap">${label}</div>
     </div>`;
-  const wrap = el('div', 'mfig');
-  wrap.innerHTML = fig('front', frontBody, 'Вид спереди') + fig('back', backBody, 'Вид сзади');
-  return wrap;
+  return el('div', 'mfig', fig(FRONT_PATHS, 'Вид спереди') + fig(BACK_PATHS, 'Вид сзади'));
+}
+
+function muscleFigure(map = {}) {
+  return buildMuscleSvg(map, { interactive: false });
+}
+
+/* Интерактивный выбор мышц: клик по мышце меняет уровень 0 → 0.5 (вспом.) → 1 (целевая) → 0 */
+function mountMusclePicker(container, map) {
+  const render = () => {
+    container.innerHTML = '';
+    const fig = buildMuscleSvg(map, { interactive: true });
+    fig.classList.add('mfig-pick');
+    container.appendChild(fig);
+    // подсказка
+    container.appendChild(el('p', 'hint mfig-hint', 'Нажимайте на мышцы: серые → без нагрузки, светло-оранжевые → вспомогательные, насыщенные → целевые'));
+    // список выбранных мышц
+    const entries = Object.entries(map).sort((a, b) => b[1] - a[1]);
+    if (entries.length) {
+      const ml = el('div', 'mlist');
+      for (const [id, v] of entries) {
+        const row = el('div', 'mrow');
+        row.innerHTML = `<span class="mname">${esc(MUSCLES[id]?.name || id)}</span><span class="mbadge ${v >= 1 ? 'hi' : ''}">${v >= 1 ? 'целевая' : 'вспомогательная'}</span>`;
+        ml.appendChild(row);
+      }
+      container.appendChild(ml);
+    }
+    fig.addEventListener('click', (e) => {
+      const p = e.target.closest('path[data-m]');
+      if (!p) return;
+      const id = p.dataset.m;
+      const cur = Number(map[id] || 0);
+      const next = cur === 0 ? 0.5 : cur === 0.5 ? 1 : 0;
+      if (next === 0) delete map[id]; else map[id] = next;
+      render();
+    });
+  };
+  render();
 }
 
 /* ---------------- ПРОГРЕСС ---------------- */
-function weekKey(d) { const m = new Date(d); m.setDate(m.getDate() - ((m.getDay() + 6) % 7)); return `${m.getFullYear()}-${pad(m.getMonth() + 1)}-${pad(m.getDate())}`; }
+const allDoneCount = () => workouts.filter((w) => w.done).length;
+const thisWeekDoneCount = () => weekStats().done;
 
 function viewProgress() {
   const app = $('#app');
   const now = new Date();
-  const weeks = [];
-  for (let w = 11; w >= 0; w--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - w * 7);
-    const key = weekKey(d);
-    weeks.push({ key, label: `${pad(d.getDate())}.${pad(d.getMonth() + 1)}`, done: 0, sets: 0, volume: 0 });
-  }
-  const wkIndex = new Map(weeks.map((w) => [w.key, w]));
-  for (const w of workouts) if (w.done) {
-    const k = weekKey(parseISO(w.date));
-    const rec = wkIndex.get(k);
-    if (rec) {
-      rec.done++;
-      for (const ex of w.exercises) for (const s of ex.sets) { rec.sets++; rec.volume += (s.w || 0) * (s.r || 0); }
-    }
-  }
   const monthDone = workouts.filter((w) => w.done && parseISO(w.date).getMonth() === now.getMonth() && parseISO(w.date).getFullYear() === now.getFullYear()).length;
-  const totals = weekTotals();
-  const maxDone = Math.max(1, ...weeks.map((w) => w.done));
-  const bxs = [];
-  for (let i = 0; i < weeks.length; i++) {
-    const x = 12 + i * ((PANEL_W - 24) / 12);
-    const h = Math.round((weeks[i].done / maxDone) * 60) + (weeks[i].done ? 3 : 0);
-    bxs.push(`<rect x="${x}" y="${70 - h}" width="16" height="${h}" rx="3" fill="${weeks[i].done ? 'var(--ok)' : 'var(--border)'}"></rect>`);
-    bxs.push(`<text x="${x + 8}" y="84" text-anchor="middle" class="ct">${weeks[i].label.slice(0, 2)}${weeks[i].label.slice(-2)}</text><text x="${x + 8}" y="${66 - h}" text-anchor="middle" class="ct ct-v">${weeks[i].done || ''}</text>`);
-  }
+  const weekDone = thisWeekDoneCount();
   app.innerHTML = `
     <header class="topbar"><div class="topbar-l">
-      <div class="topbar-title">Прогресс</div><div class="topbar-sub">Статистика за 12 недель</div></div></header>
-    <div class="stat-grid">
-      <div class="stat"><b>${monthDone}</b><span>за месяц: тренировок выполнено</span></div>
-      <div class="stat"><b>${weeks.reduce((a, w) => a + w.done, 0)}</b><span>за 12 недель: тренировок</span></div>
-      <div class="stat"><b>${totals.doneSets}</b><span>сетов на текущей неделе</span></div>
-      <div class="stat"><b>${totals.unDone}</b><span>снято отметок на неделе</span></div>
+      <div class="topbar-title">Прогресс</div><div class="topbar-sub">Статистика тренировок</div></div></header>
+    <div class="stat-row">
+      <div class="stat"><b>${weekDone}</b><span>за неделю</span></div>
+      <div class="stat"><b>${monthDone}</b><span>за месяц</span></div>
+      <div class="stat"><b>${allDoneCount()}</b><span>всего</span></div>
     </div>
     <div class="sec">
-      <div class="sec-title">Выполнено тренировок по неделям</div>
-      <div class="chart-holder"><svg viewBox="0 0 ${PANEL_W} 96" class="ppchart" role="img" aria-label="Тренировки по неделям">${bxs.join('')}</svg></div>
+      <div class="sec-title">На этой неделе</div>
+      <div id="weekChartBox" class="chart-holder"></div>
     </div>
     <div class="sec">
       <div class="sec-title">Тренированные зоны за месяц</div>
       <div id="heatWrap"></div>
     </div>
-    <div class="sec">
-      <div class="sec-title">Рекорды веса</div>
-      <select class="inp" id="prSel">${allExercises().filter((x) => Object.keys(x.muscles).length).map((x) => `<option ${x.name === state.prSet ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
-      <div id="prChart" class="chart-holder"></div>
-      <div id="prInfo" class="hint"></div>
+    <div class="sec" id="prSec">
+      <div class="sec-title">Рекорды веса</div>`;
+  // если выбранное упражнение удалено — берём первое доступное
+  const prOptions = allExercises().filter((x) => Object.keys(x.muscles).length);
+  if (!prOptions.some((x) => x.name === state.prSet)) state.prSet = prOptions[0]?.name || '';
+  app.innerHTML += `
+      ${prOptions.length ? `<select class="inp" id="prSel">${prOptions.map((x) => `<option ${x.name === state.prSet ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select><div id="prChart" class="chart-holder"></div><div id="prInfo" class="hint"></div>` : '<p class="hint">Добавьте упражнения, чтобы видеть рекорды.</p>'}
     </div>`;
   const hw = $('#heatWrap');
   hw.appendChild(heatFigure());
-  $('#prSel').addEventListener('change', (e) => { state.prSet = e.target.value; drawPR(); });
+  weeklyChart($('#weekChartBox'));
+  $('#prSel')?.addEventListener('change', (e) => { state.prSet = e.target.value; drawPR(); });
   drawPR();
 }
-
-const PANEL_W = 200;
 
 function heatFigure() {
   const map = {};
@@ -826,7 +1009,7 @@ function drawPR() {
   let cur = 0;
   for (const p of points) { cur = Math.max(cur, p.v); best.push({ ...p, best: cur }); }
   const last = best[best.length - 1];
-  info.textContent = `Рекорд: ${fmtKg(last.best)}. Последняя попытка ${fmtKg(points[points.length - 1].v)} (${points[points.length - 1].date}).`;
+  info.textContent = `Рекорд: ${fmtKg(last.best)}. Последняя попытка ${fmtKg(points[points.length - 1].v)} (${fmtDateShort(points[points.length - 1].date)}).`;
   const W = 260, H = 110, pad2 = 22;
   const minV = Math.min(...points.map((p) => p.v), last.best) || 0;
   const maxV = last.best || 1;
@@ -841,7 +1024,7 @@ function drawPR() {
   svg += `<path d="${line2}" fill="none" stroke="var(--hl)" stroke-dasharray="3 3" stroke-width="1.5" opacity="0.7"/>`;
   svg += `<path d="${line1}" fill="none" stroke="var(--hl)" stroke-width="2"/>`;
   best.forEach((p, i) => { svg += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(p.v).toFixed(1)}" r="2.5" fill="var(--hl)"/><title>${p.date}: ${fmtKg(p.v)}</title>`; });
-  svg += `<text x="${pad2}" y="${H - 6}" class="ct">${points[0].date.slice(5)}</text><text x="${W - pad2}" y="${H - 6}" text-anchor="end" class="ct">${last.date.slice(5)}</text>`;
+  svg += `<text x="${pad2}" y="${H - 6}" class="ct">${fmtDateShort(points[0].date)}</text><text x="${W - pad2}" y="${H - 6}" text-anchor="end" class="ct">${fmtDateShort(last.date)}</text>`;
   svg += '</svg>';
   chartEl.innerHTML = svg;
 }
@@ -892,8 +1075,15 @@ function viewSettings() {
       <div class="row2">
         <label class="lb">Рост (см)<input class="inp num" id="pfH" type="number" value="${esc(pr.h || '')}"></label>
         <label class="lb">Вес (кг)<input class="inp num" id="pfW" type="number" step="0.5" value="${esc(pr.w || '')}"></label>
+        <label class="lb">Возраст<input class="inp num" id="pfAge" type="number" min="18" max="120" value="${esc(pr.age || '')}"></label>
+        <label class="lb">Пол<select class="inp" id="pfSex">
+          <option value="" ${!pr.sex ? 'selected' : ''}>Не указан</option>
+          <option value="m" ${pr.sex === 'm' ? 'selected' : ''}>Мужской</option>
+          <option value="f" ${pr.sex === 'f' ? 'selected' : ''}>Женский</option>
+        </select></label>
       </div>
-      <label class="lb">Цель тренировок (в неделю)<input class="inp num" id="pfGoal" type="number" min="1" max="7" value="${esc(pr.goal ?? 5)}"></label>
+      <label class="lb">Цель тренировок (в неделю)<input class="inp num" id="pfGoal" type="number" min="1" max="7" value="${esc(pr.goal ?? '')}"></label>
+      <div class="bmi-box" id="bmiBox" hidden></div>
       <button class="btn primary wide" id="pfSave">Сохранить</button>
     </div>
     <div class="sec">
@@ -913,25 +1103,89 @@ function viewSettings() {
       </div>
       <input type="file" id="importFile" accept=".json,application/json" hidden>
       <button class="btn wide danger" id="btnClear">Очистить все данные</button>
-    </div>
-    <div class="sec">
-      <div class="sec-title">О приложении</div>
-      <p class="hint">Календарь тренировок — локальное PWA: все данные хранятся только на вашем устройстве. Установите его через меню браузера «Добавить на главный экран» для полноценной работы офлайн.</p>
     </div>`;
   $('#pfSave').addEventListener('click', () => {
     state.profile = {
       name: $('#pfName').value.trim(),
       h: Number($('#pfH').value) || '',
       w: Number($('#pfW').value) || '',
-      goal: Math.min(7, Math.max(1, Number($('#pfGoal').value) || 5)),
+      age: Number($('#pfAge').value) || '',
+      sex: $('#pfSex').value || '',
+      goal: Number($('#pfGoal').value) ? Math.min(7, Math.max(1, Number($('#pfGoal').value))) : '',
     };
     saveProfile();
-    render({});
+    // отклик на сохранение (кнопка меняется и через мгновение возвращается)
+    const btn = $('#pfSave');
+    btn.textContent = 'Сохранено ✓';
+    btn.disabled = true;
+    setTimeout(() => { btn.textContent = 'Сохранить'; btn.disabled = false; }, 1500);
   });
+
+  const bmiHost = $('#bmiBox');
+  /* Категории ИМТ — по классификации ВОЗ для взрослых (от 20 лет):
+     дефицит < 18.5, норма 18.5–25, избыточная масса 25–30,
+     ожирение 30 / 35 / 40 (ru.wikipedia.org · WHO Technical Report Series 894).
+     ВОЗ не вводит поправок по полу и возрасту. Единственная верифицированная
+     возрастная поправка — с 65 лет: гериатрические рекомендации (ESPEN;
+     Winter et al., Am J Clin Nutr 2014) считают нормой 22–27, так как
+     «лишний» вес в пожилом возрасте смертность не повышает.
+     Пол в ИМТ учесть корректнее через процент жира: формула Дёренберга
+     (Deurenberg et al., 1991): BF% = 1.2·ИМТ + 0.23·возраст − 10.8·пол − 5.4,
+     ориентиры нормы жира — банды ACE (8–19 / 11–21 / 13–24% м; 21–32 / 23–33 / 24–35% ж). */
+  const CATS = [
+    'Выраженный дефицит',
+    'Недостаточный вес',
+    'Норма',
+    'Избыточный вес',
+    'Ожирение I ст.',
+    'Ожирение II ст.',
+    'Ожирение III ст.',
+  ];
+  const CAT_CLASS = ['bmi-bad', 'bmi-low', 'bmi-ok', 'bmi-warn', 'bmi-bad', 'bmi-bad', 'bmi-deep'];
+  const ZONE_COLOR = ['#9f1239', '#f59e0b', '#16a34a', '#fbbf24', '#dc2626', '#b91c1c', '#7f1d1d'];
+  const renderBmi = (bmi, zoneIdx, notes, pos, th) => {
+    const widths = th.slice(1).map((t, i) => Math.max(0.1, t - th[i]));
+    const totalW = widths.reduce((a, b2) => a + b2, 0);
+    bmiHost.hidden = false;
+    bmiHost.className = 'bmi-box ' + CAT_CLASS[zoneIdx];
+    bmiHost.innerHTML = `
+      <div class="bmi-row"><span class="bmi-cat">${esc(CATS[zoneIdx])}</span><span class="bmi-num">${bmi.toFixed(1)}</span></div>
+      ${notes.map((n) => `<div class="bmi-note">${esc(n)}</div>`).join('')}
+      <div class="bmi-gauge">${widths.map((wd, i) => `<div style="width:${((wd / totalW) * 100).toFixed(2)}%;background:${ZONE_COLOR[i]}"></div>`).join('')}<i class="bmi-marker" style="left:${pos.toFixed(2)}%"></i></div>`;
+  };
+  const updateBmi = () => {
+    const h = Number($('#pfH').value), w = Number($('#pfW').value);
+    const age = Number($('#pfAge').value) || 0;
+    const sex = $('#pfSex')?.value || '';
+    if (!(h >= 100 && h <= 250) || !(w >= 25 && w <= 400)) { bmiHost.hidden = true; return; }
+    const bmi = w / Math.pow(h / 100, 2);
+    // границы зон на общей шкале 15–45; с 65 лет норма сдвигается к 22–27
+    const th = [15, 16, age >= 65 ? 22 : 18.5, age >= 65 ? 27 : 25, 30, 35, 40, 45];
+    let zone = th.findIndex((t, i) => i > 0 && bmi < t) - 1; // 0..6 — сегмент шкалы
+    const pos = Math.min(100, Math.max(2, ((bmi - 15) / 30) * 100));
+    if (zone < 0) zone = 6; // ≥45 → «Ожирение III ст.»
+    // пояснение: норма ИМТ (ВОЗ / гериатрическая) + оценка % жира (Дёренберг, банды ACE);
+    // жир считаем только если пол указан — формула и ориентиры завязаны на пол
+    const notes = [age >= 65 ? 'Гериатрическая норма (65+): 22–27' : 'Норма ВОЗ для взрослых: 18.5–25'];
+    if (sex) {
+      const bf = 1.2 * bmi + 0.23 * age - (sex === 'm' ? 16.2 : 5.4);
+      const bfBr = age >= 60 ? 2 : age >= 40 ? 1 : 0;
+      const bfNorm = [{ m: '8–19%', f: '21–32%' }, { m: '11–21%', f: '23–33%' }, { m: '13–24%', f: '24–35%' }][bfBr][sex];
+      notes.push(`Жир ≈ ${Math.round(bf)}% · ориентир для ${sex === 'f' ? 'женщин' : 'мужчин'}: ${bfNorm} (формула Дёренберга)`);
+    }
+    renderBmi(bmi, zone, notes, pos, th);
+  };
+  ['#pfH', '#pfW', '#pfAge'].forEach((sel) => $(sel).addEventListener('input', updateBmi));
+  $('#pfSex').addEventListener('change', updateBmi);
+  updateBmi();
   const ps = $('#permState');
   const updPerm = () => {
     if (!('Notification' in window)) { ps.textContent = 'Уведомления не поддерживаются этим браузером.'; $('#notifyBtn').disabled = true; return; }
-    ps.textContent = Notification.permission === 'granted' ? '✅ Разрешение выдано.' : Notification.permission === 'denied' ? '⛔ Разрешение заблокировано в настройках браузера.' : 'Разрешение не выдано.';
+    ps.textContent = Notification.permission === 'granted'
+      ? '✅ Напоминание о тренировке приходит в день занятия — пока приложение открыто.'
+      : Notification.permission === 'denied'
+        ? '⛔ Разрешение заблокировано в настройках браузера.'
+        : 'Разрешение не выдано.';
   };
   updPerm();
   const updDark = () => {
@@ -946,6 +1200,7 @@ function viewSettings() {
     updPerm();
     if (r === 'granted') {
       try { new Notification('Календарь тренировок', { body: 'Напоминания включены! 💪' }); } catch { /* noop */ }
+      dailyRemind(); // если тренировка на сегодня ещё не сделана — напомним сразу
     }
   });
   $('#btnExport').addEventListener('click', () => {
@@ -985,15 +1240,17 @@ function viewSettings() {
 
 /* ---------------- ПОДТВЕРЖДЕНИЕ ---------------- */
 let confirmOk = null;
-function confirmDialog(title, text, onYes) {
+function confirmDialog(title, text, onYes, yesLabel) {
   const host = $('#confirmHost');
   $('#confirmTitle').textContent = title;
   $('#confirmText').textContent = text;
+  $('#confirmYes').textContent = yesLabel || 'Удалить';
   host.hidden = false;
   confirmOk = onYes;
   const close = () => { host.hidden = true; confirmOk = null; };
   $('#confirmYes').onclick = () => { const f = confirmOk; close(); f && f(); };
   $('#confirmNo').onclick = close;
+  $('#confirmNo').textContent = 'Отмена';
   $('#confirmBackdrop').onclick = close;
 }
 
@@ -1032,6 +1289,25 @@ $('#a2hsInstall').addEventListener('click', async () => {
 $('#a2hsClose').addEventListener('click', () => { $('#a2hs').hidden = true; sessionStorage.setItem('a2hs_closed', '1'); });
 
 /* ---------------- СТАРТ ---------------- */
+/* Честные напоминания: web-уведомления из открытого таба (веб-страница не может
+   будить закрытый браузер — это доступно только установленному PWA/мобильному).
+   Раз в минуту проверяем: есть ли на сегодня запланированная, но не выполненная
+   тренировка, и не показывали ли уже напоминание сегодня (флаг в localStorage). */
+function dailyRemind() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const today = todayISO();
+  try {
+    if (localStorage.getItem('wt_notify_date') === today) return; // сегодня уже напоминали
+    const planned = forDay(today).filter((w) => !w.done);
+    if (!planned.length) return;
+    const names = [...new Set(planned.map((w) => w.title || 'Тренировка'))].join(', ');
+    const n = new Notification('Календарь тренировок', { body: `Сегодня тренировка: ${names}. Не забудьте! 💪` });
+    n.onclick = () => { state.dayISO = today; state.view = 'day'; render(); try { window.focus(); } catch { /* noop */ } n.close(); };
+    localStorage.setItem('wt_notify_date', today);
+  } catch { /* localStorage может быть недоступен */ }
+}
+setInterval(dailyRemind, 60000);
+dailyRemind();
 if ('serviceWorker' in navigator) {
   const hadController = !!navigator.serviceWorker.controller;
   // при смене контролирующего воркера (обновление) — перезагружаем страницу, чтобы взять свежие файлы

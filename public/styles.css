@@ -1,8 +1,8 @@
 :root {
   --bg: #f1f5f9;
+  --muted: #475569;
   --card: #ffffff;
   --text: #0f172a;
-  --muted: #64748b;
   --border: #e2e8f0;
   --orange: #f97316;
   --orange-deep: #ea580c;
@@ -69,8 +69,8 @@ button { font: inherit; color: inherit; }
   transition: transform .12s, background .15s, border-color .15s;
 }
 .btn:active { transform: scale(.97); }
-.btn.primary { background: var(--orange); border-color: var(--orange-deep); color: #fff; }
-.btn.primary:hover { background: var(--orange-deep); }
+.btn.primary { background: #c2410c; border-color: #9a3412; color: #fff; }
+.btn.primary:hover { background: #9a3412; }
 .btn.subtle { background: transparent; }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn.tiny { padding: 5px 9px; font-size: 12px; border-radius: 8px; }
@@ -225,6 +225,11 @@ textarea.inp { resize: vertical; }
   z-index: 1;
 }
 .sheet-wide { width: min(100vw, 560px); }
+/* фиксированное тело подборщика упражнений: окно не «съезжает» при смене категории */
+.pick-body { height: 56vh; }
+/* подборщик выше на экране, редактор под ним скрыт */
+.picker-layer { align-items: flex-start; padding-top: 10vh; }
+.picker-layer .sheet { border-radius: 12px; }
 @keyframes sheetup { from { transform: translateY(30px); opacity: .6; } }
 .sheet-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -254,6 +259,9 @@ textarea.inp { resize: vertical; }
   box-shadow: var(--shadow);
 }
 .ex-head { display: flex; justify-content: space-between; align-items: center; }
+/* название упражнения в тренировке: клик открывает технику */
+.ex-open { cursor: pointer; }
+.ex-open:hover { color: var(--orange-deep); text-decoration: underline; }
 .sets { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .set-row {
   display: grid;
@@ -298,6 +306,15 @@ textarea.inp { resize: vertical; }
 }
 .ex-item:hover { border-color: var(--orange); }
 .ex-name { font-weight: 700; min-width: 0; }
+.ex-extra { display: flex; gap: 4px; align-items: center; }
+.ex-mini {
+  width: 26px; height: 26px; font-size: 12px; flex: 0 0 auto;
+  border-radius: 50%;
+}
+.ex-item .ex-mini:hover ~ .pill { opacity: .6; }
+.mfig-pick .mfig-svg path[data-m] { cursor: pointer; }
+.mfig-pick .mfig-svg path[data-m]:hover { opacity: .75; }
+.mfig-hint { text-align: center; margin: 4px 0 8px; }
 
 /* ---------- карта мышц ---------- */
 .mfig { display: flex; gap: 4px; justify-content: center; width: 100%; }
@@ -316,6 +333,19 @@ textarea.inp { resize: vertical; }
 .tech-row b { flex: 0 0 78px; color: var(--muted); font-size: 12px; padding-top: 2px; }
 
 /* ---------- статистика ---------- */
+.stat-row { display: flex; gap: 8px; margin: 10px 0; }
+.stat-row .stat {
+  flex: 1;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 8px;
+  white-space: nowrap;
+  min-width: 0;
+}
+.stat-row .stat b { font-size: 19px; }
+.stat-row .stat span { font-size: 12px; }
 .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; }
 .stat {
   background: var(--card); border: 1px solid var(--border);
@@ -331,6 +361,48 @@ textarea.inp { resize: vertical; }
 .ct-v { font-size: 10px; fill: var(--text); }
 .meter { height: 10px; border-radius: 999px; background: var(--m0); overflow: hidden; margin: 6px 0 10px; }
 .meter i { display: block; height: 100%; background: var(--ok); border-radius: 999px; transition: width .3s; }
+
+/* ---------- ИМТ ---------- */
+.bmi-box {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  margin: 10px 0;
+  background: var(--bg);
+}
+.bmi-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.bmi-cat { font-size: 15px; font-weight: 600; }
+.bmi-num { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.bmi-note { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.bmi-gauge {
+  position: relative;
+  display: flex;
+  height: 14px;
+  border-radius: 7px;
+  overflow: visible;
+  margin: 10px 0 4px;
+}
+.bmi-gauge > div { height: 100%; transition: width .25s; }
+.bmi-gauge > div:first-child { border-radius: 7px 0 0 7px; }
+.bmi-gauge > div:last-of-type { border-radius: 0 7px 7px 0; }
+.bmi-gauge > div + div { border-left: 1px solid var(--card); }
+.bmi-marker {
+  position: absolute;
+  top: -5px;
+  width: 10px;
+  height: 24px;
+  border-radius: 5px;
+  background: var(--text);
+  border: 2px solid var(--card);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
+  transform: translateX(-50%);
+  transition: left .25s;
+  pointer-events: none;
+}
+.bmi-ok { border-left: 4px solid var(--ok); }
+.bmi-warn { border-left: 4px solid var(--orange); }
+.bmi-low, .bmi-bad { border-left: 4px solid var(--danger); }
+.bmi-deep { border-left: 4px solid #9f1239; }
 
 /* ---------- нижняя навигация ---------- */
 .uni {
@@ -354,7 +426,7 @@ textarea.inp { resize: vertical; }
   border-top: 2px solid transparent;
 }
 .uni-btn .uni-ico { font-size: 19px; }
-.uni-btn.uni-on { color: var(--orange); border-top-color: var(--orange); }
+.uni-btn.uni-on { color: var(--text); border-top-color: var(--orange); }
 
 /* ---------- установка ---------- */
 .a2hs {
