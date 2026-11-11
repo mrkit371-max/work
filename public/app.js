@@ -26,11 +26,15 @@ const fmtDate = (iso) => {
 };
 /* короткая дата для графиков: «10.11» */
 const fmtDateShort = (iso) => { const [y, m, d] = iso.split('-'); return `${d}.${m}`; };
+/* полная дата: «12 ноября 2026» */
+const MONTHS_FULL = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+const fmtDateFull = (iso) => { if (!iso) return ''; const d = parseISO(iso); return `${d.getDate()} ${MONTHS_FULL[d.getMonth()]}`; };
 
 /* ---------- КАТАЛОГ МЫШЦ ---------- */
 const MUSCLES = {
   chest:    { name: 'Грудные',        front: true },
   deltF:    { name: 'Передняя дельта', front: true },
+  deltL:    { name: 'Средняя дельта',  front: true },
   deltR:    { name: 'Задняя дельта',   front: false },
   biceps:   { name: 'Бицепс',          front: true },
   triceps:  { name: 'Трицепс',         front: false },
@@ -38,7 +42,8 @@ const MUSCLES = {
   abs:      { name: 'Пресс',           front: true },
   oblique:  { name: 'Косые мышцы',     front: true },
   traps:    { name: 'Трапеции',        front: false },
-  lats:     { name: 'Широчайшие',      front: false },
+  latsUpper:  { name: 'Верх широчайших', front: false },
+  latsLower:  { name: 'Низ широчайших',  front: false },
   lowback:  { name: 'Поясница',        front: false },
   glutes:   { name: 'Ягодицы',         front: false },
   quads:    { name: 'Квадрицепсы',     front: true },
@@ -46,7 +51,16 @@ const MUSCLES = {
   calves:   { name: 'Икры',            front: true },
 };
 
-const MUSCLE_ORDER = ['chest','deltF','biceps','forearm','abs','oblique','quads','calves','traps','lats','deltR','triceps','lowback','glutes','hams'];
+const MUSCLE_ORDER = ['chest','deltF','deltL','biceps','forearm','abs','oblique','quads','calves','traps','latsUpper','latsLower','deltR','triceps','lowback','glutes','hams'];
+
+// старые данные могли хранить «широчайшие» одним ключом — раскладываем на верх/низ
+const expandLats = (m) => {
+  if (!m) return {};
+  if (m.lats == null) return m;
+  const v = m.lats;
+  const { lats, ...rest } = m;
+  return { ...rest, latsUpper: Math.max(rest.latsUpper || 0, v), latsLower: Math.max(rest.latsLower || 0, v) };
+};
 
 /* ---------- КАТАЛОГ УПРАЖНЕНИЙ ---------- */
 const EXERCISES = [
@@ -67,29 +81,27 @@ const EXERCISES = [
     tips: ['Руки слегка согнуты, тросы по бокам', 'Выдох при сведении', '1–2 сек', 'Не наклоняйтесь вперёд сильно'] },
   { name: 'Сведение в тренажёре (бабочка)', cat: 'Грудь', unit: 'weight', muscles: { chest: 1 },
     tips: ['Спина прижата, локти на уровне плеч', 'Выдох при сведении', '1–2 сек', 'Не отрывайте лопатки от спинки'] },
-  { name: 'Пуловер с гантелью', cat: 'Грудь', unit: 'weight', muscles: { chest: 0.9, lats: 0.5, triceps: 0.3, abs: 0.2 },
+  { name: 'Пуловер с гантелью', cat: 'Грудь', unit: 'weight', muscles: { chest: 0.9, latsUpper: 0.5, latsLower: 0.5, triceps: 0.3, abs: 0.2 },
     tips: ['Лёжа поперёк скамьи, гантель над грудью', 'Вдох при отведении за голову', '1–2 сек', 'Не прогибайте поясницу'] },
   { name: 'Отжимания с широкой постановкой рук', cat: 'Грудь', unit: 'reps', muscles: { chest: 1, deltF: 0.4, triceps: 0.3 },
     tips: ['Ладони шире плеч', 'Тело — прямая линия', 'Вниз 2 сек', 'Не провисайте в пояснице'] },
 
-  /* ===== СПИНА (10) ===== */
-  { name: 'Подтягивания', cat: 'Спина', unit: 'reps', muscles: { lats: 1, biceps: 0.6, traps: 0.3, deltR: 0.2 },
+  /* ===== СПИНА (9) ===== */
+  { name: 'Подтягивания', cat: 'Спина', unit: 'reps', muscles: { latsUpper: 1, latsLower: 1, biceps: 0.6, traps: 0.3, deltR: 0.2 },
     tips: ['Хват чуть шире плеч', 'Без раскачки', 'Вверх 1 сек, вниз 2–3 сек', 'Не тяните шею вверх'] },
-  { name: 'Тяга штанги в наклоне', cat: 'Спина', unit: 'weight', muscles: { lats: 1, traps: 0.4, deltR: 0.4, biceps: 0.4, lowback: 0.3 },
+  { name: 'Тяга штанги в наклоне', cat: 'Спина', unit: 'weight', muscles: { latsUpper: 1, latsLower: 1, traps: 0.4, deltR: 0.4, biceps: 0.4, lowback: 0.3 },
     tips: ['Наклон корпуса ~45°, спина ровная', 'Выдох при тяге', '1–2 сек', 'Дёргать корпусом не нужно'] },
-  { name: 'Тяга верхнего блока', cat: 'Спина', unit: 'weight', muscles: { lats: 1, biceps: 0.5, traps: 0.2 },
+  { name: 'Тяга верхнего блока', cat: 'Спина', unit: 'weight', muscles: { latsUpper: 1, latsLower: 1, biceps: 0.5, traps: 0.2 },
     tips: ['Грудь вперёд, лопатки вниз', 'Выдох на усилии', '1–2 сек', 'Не отклоняйтесь сильно назад'] },
   { name: 'Становая тяга', cat: 'Спина', unit: 'weight', muscles: { lowback: 1, glutes: 0.8, hams: 0.7, traps: 0.4, quads: 0.3, forearm: 0.4 },
     tips: ['Гриф у голени, спина нейтральна', 'Вдох внизу', '1–2 сек', 'Округлять спину нельзя'] },
-  { name: 'Тяга гантели в наклоне', cat: 'Спина', unit: 'weight', muscles: { lats: 1, biceps: 0.4, deltR: 0.3 },
+  { name: 'Тяга гантели в наклоне', cat: 'Спина', unit: 'weight', muscles: { latsUpper: 1, latsLower: 1, biceps: 0.4, deltR: 0.3 },
     tips: ['Упор одной рукой и коленом на скамью', 'Выдох при тяге к поясу', '1–2 сек', 'Не скручивайте корпус'] },
-  { name: 'Тяга горизонтального блока', cat: 'Спина', unit: 'weight', muscles: { lats: 0.9, traps: 0.3, biceps: 0.4, deltR: 0.3 },
+  { name: 'Тяга горизонтального блока', cat: 'Спина', unit: 'weight', muscles: { latsUpper: 0.9, latsLower: 0.9, traps: 0.3, biceps: 0.4, deltR: 0.3 },
     tips: ['Спина прямая, плечи назад', 'Выдох при тяге к животу', '1–2 сек', 'Не сутультесь в конечной точке'] },
-  { name: 'Тяга Т-грифа', cat: 'Спина', unit: 'weight', muscles: { lats: 1, traps: 0.5, deltR: 0.4, biceps: 0.4, lowback: 0.3 },
+  { name: 'Тяга Т-грифа', cat: 'Спина', unit: 'weight', muscles: { latsUpper: 1, latsLower: 1, traps: 0.5, deltR: 0.4, biceps: 0.4, lowback: 0.3 },
     tips: ['Наклон корпуса, упор в грудь (если есть)', 'Выдох при тяге', '1–2 сек', 'Не дёргайте корпус'] },
-  { name: 'Шраги со штангой', cat: 'Спина', unit: 'weight', muscles: { traps: 1, forearm: 0.3 },
-    tips: ['Штанга в опущенных руках', 'Плечи — вверх к ушам', '1 сек вверх, пауза, 2 сек вниз', 'Не вращайте плечами'] },
-  { name: 'Подтягивания обратным хватом', cat: 'Спина', unit: 'reps', muscles: { lats: 0.9, biceps: 0.8, chest: 0.2 },
+  { name: 'Подтягивания обратным хватом', cat: 'Спина', unit: 'reps', muscles: { latsUpper: 0.9, latsLower: 0.9, biceps: 0.8, chest: 0.2 },
     tips: ['Хват снизу на ширине плеч', 'Без раскачки', 'Вверх 1 сек, вниз 2–3 сек', 'Не тянитесь подбородком к перекладине'] },
   { name: 'Гиперэкстензия', cat: 'Спина', unit: 'reps', muscles: { lowback: 1, glutes: 0.5, hams: 0.4 },
     tips: ['Упор в подушку на уровне бёдер', 'Подъём до прямой линии', '1–2 сек', 'Не разгибайтесь слишком сильно назад'] },
@@ -127,7 +139,7 @@ const EXERCISES = [
     tips: ['Локоть тянется к колену', 'Выдох на скручивании', '1–2 сек без спешки', 'Не тяните шею'] },
   { name: 'Обратные скручивания', cat: 'Пресс', unit: 'reps', muscles: { abs: 1, oblique: 0.3 },
     tips: ['Лёжа на спине, колени к груди', 'Выдох при подъёме таза', '1–2 сек', 'Не раскачивайте корпус'] },
-  { name: 'Боковая планка', cat: 'Пресс', unit: 'time', muscles: { oblique: 1, abs: 0.7, deltR: 0.3 },
+  { name: 'Боковая планка', cat: 'Пресс', unit: 'time', muscles: { oblique: 1, abs: 0.7, deltF: 0.3 },
     tips: ['Упор на локоть, тело — прямая линия', 'Дышите ровно', 'Статично', 'Не провисайте бёдрами'] },
   { name: 'Русский твист', cat: 'Пресс', unit: 'reps', muscles: { abs: 1, oblique: 1 },
     tips: ['Сидя с наклоном корпуса, ноги на весу', 'Поворот в сторону на выдохе', '1–2 сек', 'Не тянитесь руками к полу'] },
@@ -138,10 +150,10 @@ const EXERCISES = [
   { name: 'Скручивания V-образные', cat: 'Пресс', unit: 'reps', muscles: { abs: 1, oblique: 0.4 },
     tips: ['Лёжа, руки за головой', 'Одновременный подъём корпуса и ног', '1–2 сек', 'Не тяните шею'] },
 
-  /* ===== ПЛЕЧИ (10) ===== */
+  /* ===== ПЛЕЧИ (11) ===== */
   { name: 'Жим гантелей вверх', cat: 'Плечи', unit: 'weight', muscles: { deltF: 1, deltR: 0.3, triceps: 0.5, chest: 0.2 },
     tips: ['Гантели на уровне плеч', 'Выдох при жиме', '1–2 сек', 'Не прогибайте поясницу'] },
-  { name: 'Махи в стороны', cat: 'Плечи', unit: 'weight', muscles: { deltF: 1, deltR: 0.2, traps: 0.2 },
+  { name: 'Махи в стороны', cat: 'Плечи', unit: 'weight', muscles: { deltL: 1, deltF: 0.2, traps: 0.2 },
     tips: ['Лёгкий сгиб в локтях', 'Выдох при подъёме', '1–2 сек, пауза вверху', 'Не поднимайте выше плеч'] },
   { name: 'Армейский жим', cat: 'Плечи', unit: 'weight', muscles: { deltF: 1, deltR: 0.4, triceps: 0.5, chest: 0.2, traps: 0.2 },
     tips: ['Штанга у ключиц, стоя', 'Выдох при выжимании', '1–2 сек', 'Не прогибайтесь назад'] },
@@ -149,12 +161,14 @@ const EXERCISES = [
     tips: ['Гантели у груди, ладони к себе', 'Разворот ладоней при жиме', '1–2 сек', 'Не делайте рывок в нижней точке'] },
   { name: 'Махи гантелями в наклоне', cat: 'Плечи', unit: 'weight', muscles: { deltR: 1, traps: 0.4, lowback: 0.2 },
     tips: ['Наклон корпуса ~45°, спина прямая', 'Выдох при разведении', '1–2 сек', 'Не поднимайте плечи вверх'] },
-  { name: 'Тяга штанги к подбородку', cat: 'Плечи', unit: 'weight', muscles: { deltR: 1, deltF: 0.6, traps: 0.6, biceps: 0.3 },
+  { name: 'Тяга штанги к подбородку', cat: 'Плечи', unit: 'weight', muscles: { deltL: 1, deltF: 0.4, traps: 0.6, biceps: 0.3 },
     tips: ['Хват сверху, ширина плеч', 'Тяга вдоль корпуса до подбородка', '1–2 сек', 'Не разворачивайте локти сильно'] },
   { name: 'Шраги с гантелями', cat: 'Плечи', unit: 'weight', muscles: { traps: 1, deltR: 0.2, forearm: 0.3 },
     tips: ['Гантели в опущенных руках', 'Плечи — вверх к ушам', '1 сек вверх, пауза, 2 сек вниз', 'Не вращайте плечами'] },
-  { name: 'Тяга к лицу', cat: 'Плечи', unit: 'weight', muscles: { deltR: 1, traps: 0.5, deltF: 0.3 },
+  { name: 'Тяга к лицу', cat: 'Плечи', unit: 'weight', muscles: { deltR: 1, deltL: 0.6, traps: 0.5, deltF: 0.2 },
     tips: ['Трос на уровне лица, хват сверху', 'Тяга к лицу, локти в стороны', '1–2 сек', 'Не опускайте локти'] },
+  { name: 'Шраги со штангой', cat: 'Плечи', unit: 'weight', muscles: { traps: 1, forearm: 0.3 },
+    tips: ['Штанга в опущенных руках', 'Плечи — вверх к ушам', '1 сек вверх, пауза, 2 сек вниз', 'Не вращайте плечами'] },
   { name: 'Жим гантелей сидя', cat: 'Плечи', unit: 'weight', muscles: { deltF: 1, deltR: 0.4, triceps: 0.4 },
     tips: ['Сидя на скамье со спинкой', 'Выдох при жиме', '1–2 сек', 'Спина прижата к спинке'] },
   { name: 'Разведение гантелей в наклоне', cat: 'Плечи', unit: 'weight', muscles: { deltR: 1, traps: 0.3, lowback: 0.2 },
@@ -191,11 +205,11 @@ const EXERCISES = [
     tips: ['Вращайте запястьями, а не руками', 'Ровное дыхание', 'Стабильный ритм', 'Прыгайте невысоко, приземляйтесь мягко'] },
   { name: 'Эллипсоид', cat: 'Кардио', unit: 'time', muscles: { quads: 0.8, glutes: 0.5, hams: 0.4, calves: 0.5 },
     tips: ['Движения плавные, без рывков', 'Дышите ровно', 'Средний темп 20–30 минут', 'Не опирайтесь сильно на рукояти'] },
-  { name: 'Гребной тренажёр', cat: 'Кардио', unit: 'time', muscles: { lats: 0.8, hams: 0.7, quads: 0.5, glutes: 0.4, deltR: 0.3, biceps: 0.4 },
+  { name: 'Гребной тренажёр', cat: 'Кардио', unit: 'time', muscles: { latsUpper: 0.8, latsLower: 0.8, hams: 0.7, quads: 0.5, glutes: 0.4, deltR: 0.3, biceps: 0.4 },
     tips: ['Сначала ноги, потом спина, потом руки', 'Выдох при тяге', 'Ритмично', 'Не горбитесь в финале тяги'] },
   { name: 'Бёрпи', cat: 'Кардио', unit: 'reps', muscles: { quads: 0.7, chest: 0.5, abs: 0.6, glutes: 0.5, deltF: 0.4, calves: 0.5 },
     tips: ['Присед → упор лёжа → отжимание → прыжок', 'Дышите ровно', 'Без пауз между фазами', 'Не прогибайте поясницу'] },
-  { name: 'Прыжки звёздочка', cat: 'Кардио', unit: 'reps', muscles: { calves: 0.9, quads: 0.5, deltR: 0.5, abs: 0.3 },
+  { name: 'Прыжки звёздочка', cat: 'Кардио', unit: 'reps', muscles: { calves: 0.9, quads: 0.5, deltF: 0.5, abs: 0.3 },
     tips: ['Прыжок — ноги врозь, руки вверх', 'Ритмично', 'Быстрый темп', 'Приземляйтесь мягко'] },
   { name: 'Ходьба в гору', cat: 'Кардио', unit: 'time', muscles: { quads: 0.8, glutes: 0.7, hams: 0.5, calves: 0.5 },
     tips: ['Наклон дорожки 10–15%', 'Ровный темп', 'Дышите глубоко', 'Не держитесь сильно за поручни'] },
@@ -213,7 +227,7 @@ const fixLib = () => {
 };
 fixLib();
 const CUSTOM_KEY = 'wt_custom_ex_v1';
-const loadCustom = () => { try { return JSON.parse(localStorage.getItem(CUSTOM_KEY) || '[]'); } catch { return []; } };
+const loadCustom = () => { try { return (JSON.parse(localStorage.getItem(CUSTOM_KEY) || '[]') || []).map((e) => ({ ...e, muscles: expandLats(e.muscles) })); } catch { return []; } };
 const allExercises = () => [...loadCustom(), ...EXERCISES];
 const findExercise = (name) => allExercises().find((e) => e.name === name);
 
@@ -891,47 +905,35 @@ function viewLibrary() {
   draw();
 }
 
-function openAddToDate(ex) {
-  const dates = [...new Set(workouts.map((w) => w.date))].sort();
-  modal('Добавить упражнение в тренировку', {
-    buildBody: (b) => {
-      b.innerHTML = `
-        <div id="dateList"></div>
-        <button class="btn subtle wide" id="addNewDate" style="margin-top:10px">+ Новая тренировка на ${esc(fmtDate(state.dayISO))}</button>
-      `;
-      const list = $('#dateList', b);
-      if (dates.length === 0) {
-        list.innerHTML = '<p class="hint">Пока нет запланированных тренировок</p>';
-      } else {
-        dates.forEach((date) => {
-          const dayWorkouts = forDay(date);
-          const btn = el('button', 'date-item');
-          const count = dayWorkouts.length;
-          btn.innerHTML = `<span class="date-label">${esc(fmtDate(date))}</span><span class="date-count">${count} ${count === 1 ? 'тренировка' : count < 5 ? 'тренировки' : 'тренировок'}</span>`;
-          btn.addEventListener('click', () => {
-            const w = dayWorkouts[0];
-            w.exercises.push({ name: ex.name, sets: [{ w: 0, r: 0, done: 0, doneDate: null }] });
-            save();
-            close();
-            editWorkout(w.id);
-          });
-          list.appendChild(btn);
-        });
-      }
-      $('#addNewDate', b).addEventListener('click', () => {
-        const w = { id: uid(), date: state.dayISO, title: `${ex.cat}: ${ex.name}`, type: ex.cat === 'Кардио' ? 'Кардио' : 'Силовая', notes: '', done: false, exercises: [{ name: ex.name, sets: [{ w: 0, r: 0, done: 0, doneDate: null }] }] };
-        workouts.push(w);
-        save();
-        close();
-        editWorkout(w.id);
-      });
-    },
-  });
-}
-
 function openExDetail(ex, { hideAdd } = {}) {
   modal(ex.name, {
     buildBody: (b) => {
+      // предлагаем только сегодня и будущее: прошедшие дни не предлагаются вовсе
+      const today = todayISO();
+      const plannedDates = [...new Set(workouts.map((w) => w.date))].filter((d) => d >= today).sort();
+      const selStart = plannedDates.length ? 0 : -1; // старт — ближайшая по дате тренировка
+      let selIdx = selStart;
+      const getDate = () => (selIdx >= 0 ? plannedDates[selIdx] : today);
+
+      const renderDateNav = () => {
+        const prevBtn = $('#prevDate', b);
+        const nextBtn = $('#nextDate', b);
+        const addBtn = $('#addToTraining', b);
+        if (prevBtn) {
+          prevBtn.disabled = selIdx <= 0;
+          prevBtn.onclick = () => { if (selIdx > 0) { selIdx--; renderDateNav(); } };
+        }
+        if (nextBtn) {
+          nextBtn.disabled = selIdx >= plannedDates.length - 1;
+          nextBtn.onclick = () => { if (selIdx < plannedDates.length - 1) { selIdx++; renderDateNav(); } };
+        }
+        if (addBtn) {
+          addBtn.textContent = selIdx < 0
+            ? 'Создать тренировку на сегодня'
+            : `Добавить в тренировку на ${esc(fmtDateFull(getDate()))}`;
+        }
+      };
+
       b.innerHTML = `
         <div class="mfig-fix"><div class="mfig-inline" id="exMap"></div>
         <div class="mlist" id="exMuscles"></div></div>
@@ -941,7 +943,7 @@ function openExDetail(ex, { hideAdd } = {}) {
           <div class="tech-row"><b>Темп:</b><span>${esc(ex.tips[2])}</span></div>
           <div class="tech-row"><b>Ошибка:</b><span>${esc(ex.tips[3])}</span></div>
         </div>
-        ${hideAdd ? '' : `<button class="btn primary wide" id="addToTraining">Добавить в тренировку</button>`}
+        ${hideAdd ? '' : `<div class="date-nav-row">${plannedDates.length ? '<button type="button" class="btn subtle icon date-nav-btn" id="prevDate">‹</button>' : ''}<button type="button" class="btn primary wide" id="addToTraining">${plannedDates.length ? 'Добавить в тренировку на ' + esc(fmtDateFull(getDate())) : 'Создать тренировку на сегодня'}</button>${plannedDates.length ? '<button type="button" class="btn subtle icon date-nav-btn" id="nextDate">›</button>' : ''}</div>`}
         ${ex.custom ? '<div class="row2" style="margin-top:8px"><button class="btn subtle wide" id="exEdit">✎ Изменить</button><button class="btn danger wide" id="exDelBtn">🗑 Удалить</button></div>' : ''}`;
       $('#exMap', b).appendChild(muscleFigure(ex.muscles));
       const ml = $('#exMuscles', b);
@@ -949,10 +951,25 @@ function openExDetail(ex, { hideAdd } = {}) {
       const entries = Object.entries(ex.muscles).sort((a, bb2) => bb2[1] - a[1]);
       for (const [id, v] of entries) {
         const row = el('div', 'mrow');
-        row.innerHTML = `<span class="mname">${esc(MUSCLES[id]?.name || id)}</span><span class="mbadge ${v >= 0.8 ? 'hi' : ''}">${v >= 0.8 ? 'целевая' : 'вспомогательная'}</span>`;
+        const levelLabel = v >= 0.9 ? 'сильная' : v >= 0.5 ? 'умеренная' : 'слабая';
+        row.innerHTML = `<span class="mname">${esc(MUSCLES[id]?.name || id)}</span><span class="mbadge ${v >= 0.9 ? 'hi' : v >= 0.5 ? 'mid' : ''}">${levelLabel}</span>`;
         ml.appendChild(row);
       }
-      if (!hideAdd) $('#addToTraining', b).addEventListener('click', () => { close(); openAddToDate(ex); });
+      if (!hideAdd) {
+        renderDateNav();
+        $('#addToTraining', b).addEventListener('click', () => {
+          const date = getDate();
+          let w = forDay(date)[0];
+          if (!w) {
+            w = { id: uid(), date, title: `${ex.cat}: ${ex.name}`, type: ex.cat === 'Кардио' ? 'Кардио' : 'Силовая', notes: '', done: false, exercises: [] };
+            workouts.push(w);
+          }
+          w.exercises.push({ name: ex.name, sets: [{ w: 0, r: 0, done: 0, doneDate: null }] });
+          save();
+          state.dayISO = date;
+          editWorkout(w.id);
+        });
+      }
       if (ex.custom) {
         $('#exEdit', b).addEventListener('click', () => { close(); customEditor(ex.name, () => render()); });
         $('#exDelBtn', b).addEventListener('click', () => {
@@ -969,44 +986,50 @@ function openExDetail(ex, { hideAdd } = {}) {
 
 /* ---------------- SVG ГРУППЫ МЫШЦ ---------------- */
 const FRONT_PATHS = [
-  ['deltF', 'M62,78 Q50,86 54,104 Q66,110 76,102 L76,78 Z'],
-  ['deltF', 'M138,78 Q150,86 146,104 Q134,110 124,102 L124,78 Z'],
-  ['chest', 'M76,76 Q86,70 100,70 Q114,70 124,76 L120,104 Q100,114 80,104 Z'],
-  ['abs', 'M86,110 Q100,106 114,110 L112,158 Q100,166 88,158 Z'],
-  ['oblique', 'M80,106 Q84,134 82,158 L74,152 Q74,122 76,100 Z'],
-  ['oblique', 'M120,106 Q116,134 118,158 L126,152 Q126,122 124,100 Z'],
-  ['biceps', 'M52,108 Q44,130 48,150 Q56,156 62,152 L58,112 Z'],
-  ['biceps', 'M148,108 Q156,130 152,150 Q144,156 138,152 L142,112 Z'],
-  ['forearm', 'M46,152 Q40,176 44,196 Q50,202 56,198 L54,152 Z'],
-  ['forearm', 'M154,152 Q160,176 156,196 Q150,202 144,198 L146,152 Z'],
-  ['quads', 'M72,168 Q58,220 66,268 Q80,276 92,266 L92,172 Q82,168 72,168 Z'],
-  ['quads', 'M128,168 Q142,220 134,268 Q120,276 108,266 L108,172 Q118,168 128,168 Z'],
-  ['calves', 'M72,272 Q64,300 70,326 Q80,332 88,324 L88,272 Z'],
-  ['calves', 'M128,272 Q136,300 130,326 Q120,332 112,324 L112,272 Z'],
+  ['deltL', 'M48,84 Q44,93 46,108 Q54,114 62,106 L62,86 Z'],
+  ['deltF', 'M64,78 Q62,86 62,102 Q70,108 76,102 L76,80 Z'],
+  ['deltF', 'M136,78 Q138,86 138,102 Q130,108 124,102 L124,80 Z'],
+  ['deltL', 'M152,84 Q156,93 154,108 Q146,114 138,106 L138,86 Z'],
+  ['chest', 'M76,78 Q88,70 100,70 Q112,70 124,78 L120,106 Q100,116 80,106 Z'],
+  ['abs', 'M86,112 Q100,108 114,112 L112,160 Q100,168 88,160 Z'],
+  ['oblique', 'M80,108 Q84,136 82,160 L77,154 Q77,124 76,102 Z'],
+  ['oblique', 'M120,108 Q116,136 118,160 L123,154 Q123,124 124,102 Z'],
+  ['biceps', 'M52,110 Q44,132 48,152 Q55,157 61,152 L58,114 Z'],
+  ['biceps', 'M148,110 Q156,132 152,152 Q145,157 139,152 L142,114 Z'],
+  ['forearm', 'M46,154 Q40,178 44,198 Q50,204 56,200 L54,154 Z'],
+  ['forearm', 'M154,154 Q160,178 156,198 Q150,204 144,200 L146,154 Z'],
+  ['quads', 'M74,172 Q60,222 66,270 Q80,278 92,268 L92,176 Q84,172 74,172 Z'],
+  ['quads', 'M126,172 Q140,222 134,270 Q120,278 108,268 L108,176 Q116,172 126,172 Z'],
+  ['calves', 'M72,274 Q64,302 70,328 Q80,334 88,326 L88,274 Z'],
+  ['calves', 'M128,274 Q136,302 130,328 Q120,334 112,326 L112,274 Z'],
 ];
 const BACK_PATHS = [
-  ['traps', 'M70,64 Q100,80 130,64 L124,84 Q100,96 76,84 Z'],
-  ['deltR', 'M58,80 Q46,90 52,106 Q64,112 74,102 L72,80 Z'],
-  ['deltR', 'M142,80 Q154,90 148,106 Q136,112 126,102 L128,80 Z'],
-  ['lats', 'M76,88 Q100,100 124,88 L120,140 Q100,130 80,140 Z'],
-  ['lowback', 'M88,140 Q100,146 112,140 L110,168 Q100,174 90,168 Z'],
-  ['triceps', 'M50,110 Q42,132 46,152 Q54,158 60,154 L56,112 Z'],
-  ['triceps', 'M150,110 Q158,132 154,152 Q146,158 140,154 L144,112 Z'],
-  ['forearm', 'M44,154 Q38,178 42,198 Q48,204 54,200 L52,154 Z'],
-  ['forearm', 'M156,154 Q162,178 158,198 Q152,204 146,200 L148,154 Z'],
-  ['glutes', 'M78,172 Q58,186 62,206 Q74,216 92,208 L92,178 Q84,174 78,172 Z'],
-  ['glutes', 'M122,172 Q142,186 138,206 Q126,216 108,208 L108,178 Q116,174 122,172 Z'],
-  ['hams', 'M72,212 Q62,248 70,278 Q80,284 90,276 L90,214 Q80,212 72,212 Z'],
-  ['hams', 'M128,212 Q138,248 130,278 Q120,284 110,276 L110,214 Q120,212 128,212 Z'],
-  ['calves', 'M72,282 Q64,308 70,330 Q80,336 88,328 L88,282 Z'],
-  ['calves', 'M128,282 Q136,308 130,330 Q120,336 112,328 L112,282 Z'],
+  ['traps', 'M88,58 L88,68 Q76,74 58,78 L74,88 Q100,98 126,88 L142,78 Q124,74 112,68 L112,58 Q106,62 100,62 Q94,62 88,58 Z'],
+  ['deltR', 'M56,78 Q44,84 44,100 Q46,112 56,112 Q66,110 68,100 L68,84 Z'],
+  ['deltR', 'M144,78 Q156,84 156,100 Q154,112 144,112 Q134,110 132,100 L132,84 Z'],
+  ['latsUpper', 'M74,98 Q100,88 126,98 L124,122 Q100,130 76,122 Z'],
+  ['latsLower', 'M76,122 Q100,130 124,122 L120,148 Q100,154 80,148 Z'],
+  ['lowback', 'M80,148 Q100,154 120,148 L116,176 Q100,182 84,176 Z'],
+  ['glutes', 'M84,176 Q66,184 62,204 Q62,222 80,220 Q94,218 98,214 L98,184 Q90,178 84,176 Z'],
+  ['glutes', 'M116,176 Q134,184 138,204 Q138,222 120,220 Q106,218 102,214 L102,184 Q110,178 116,176 Z'],
+  ['hams', 'M78,220 Q62,224 62,248 Q64,276 70,286 Q80,290 90,282 L92,224 Q84,217 78,220 Z'],
+  ['hams', 'M122,220 Q138,224 138,248 Q136,276 130,286 Q120,290 110,282 L108,224 Q116,217 122,220 Z'],
+  ['calves', 'M70,288 Q64,310 66,330 Q72,340 86,338 L90,292 Q80,286 70,288 Z'],
+  ['calves', 'M130,288 Q136,310 134,330 Q128,340 114,338 L110,292 Q120,286 130,288 Z'],
+  ['triceps', 'M54,112 Q44,132 46,152 Q52,157 58,152 L60,118 Z'],
+  ['triceps', 'M146,112 Q156,132 154,152 Q148,157 142,152 L140,118 Z'],
+  ['forearm', 'M46,156 Q42,178 44,196 Q50,202 56,198 L58,158 Z'],
+  ['forearm', 'M154,156 Q158,178 156,196 Q150,202 144,198 L142,158 Z'],
 ];
 const HEAD_SVG = '<circle cx="100" cy="34" r="22" fill="var(--m0)" stroke="var(--mstroke)" stroke-width="2"/>';
 
 function buildMuscleSvg(map = {}, { interactive } = {}) {
   const fillFor = (v) => {
     if (!v) return 'var(--m0)';
-    if (interactive) return `color-mix(in srgb, var(--hl) ${v >= 1 ? 100 : 55}%, var(--m0))`;
+    if (interactive) {
+      const pct = v >= 0.9 ? 100 : v >= 0.5 ? 60 : 30;
+      return `color-mix(in srgb, var(--hl) ${pct}%, var(--m0))`;
+    }
     const maxV = Math.max(0.0001, ...Object.values(map));
     const t = Math.min(1, Math.max(0, (v / maxV) * 0.85 + 0.15));
     return `color-mix(in srgb, var(--hl) ${Math.round(t * 100)}%, var(--m0))`;
@@ -1025,7 +1048,7 @@ function muscleFigure(map = {}) {
   return buildMuscleSvg(map, { interactive: false });
 }
 
-/* Интерактивный выбор мышц: клик по мышце меняет уровень 0 → 0.5 (вспом.) → 1 (целевая) → 0 */
+/* Интерактивный выбор мышц: клик по мышце меняет уровень 0 → 0.3 (слабая) → 0.6 (средняя) → 1 (сильная) → 0 */
 function mountMusclePicker(container, map) {
   const render = () => {
     container.innerHTML = '';
@@ -1033,14 +1056,15 @@ function mountMusclePicker(container, map) {
     fig.classList.add('mfig-pick');
     container.appendChild(fig);
     // подсказка
-    container.appendChild(el('p', 'hint mfig-hint', 'Нажимайте на мышцы: серые → без нагрузки, светло-оранжевые → вспомогательные, насыщенные → целевые'));
+    container.appendChild(el('p', 'hint mfig-hint', 'Нажимайте на мышцы: серые → без нагрузки, светлые → слабая, средние → умеренная, насыщенные → сильная нагрузка'));
     // список выбранных мышц
     const entries = Object.entries(map).sort((a, b) => b[1] - a[1]);
     if (entries.length) {
       const ml = el('div', 'mlist');
       for (const [id, v] of entries) {
         const row = el('div', 'mrow');
-        row.innerHTML = `<span class="mname">${esc(MUSCLES[id]?.name || id)}</span><span class="mbadge ${v >= 1 ? 'hi' : ''}">${v >= 1 ? 'целевая' : 'вспомогательная'}</span>`;
+        const levelLabel = v >= 0.9 ? 'сильная' : v >= 0.5 ? 'умеренная' : 'слабая';
+        row.innerHTML = `<span class="mname">${esc(MUSCLES[id]?.name || id)}</span><span class="mbadge ${v >= 0.9 ? 'hi' : v >= 0.5 ? 'mid' : ''}">${levelLabel}</span>`;
         ml.appendChild(row);
       }
       container.appendChild(ml);
@@ -1050,7 +1074,7 @@ function mountMusclePicker(container, map) {
       if (!p) return;
       const id = p.dataset.m;
       const cur = Number(map[id] || 0);
-      const next = cur === 0 ? 0.5 : cur === 0.5 ? 1 : 0;
+      const next = cur === 0 ? 0.3 : cur === 0.3 ? 0.6 : cur === 0.6 ? 1 : 0;
       if (next === 0) delete map[id]; else map[id] = next;
       render();
     });

@@ -312,18 +312,11 @@ textarea.inp { resize: vertical; }
   border-radius: 50%;
 }
 .ex-item .ex-mini:hover ~ .pill { opacity: .6; }
-/* элементы выбора даты в модалке добавления упражнения */
-.date-item {
-  width: 100%;
-  display: flex; justify-content: space-between; align-items: center;
-  border: 1px solid var(--border); background: var(--card);
-  border-radius: 12px; padding: 12px;
-  margin-bottom: 8px; cursor: pointer; text-align: left;
-  box-shadow: var(--shadow);
-}
-.date-item:hover { border-color: var(--orange); }
-.date-label { font-weight: 700; }
-.date-count { color: var(--muted); font-size: 13px; }
+/* навигация по датам в карточке упражнения — стрелки по бокам от кнопки */
+.date-nav-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+.date-nav-row .date-nav-btn { flex: 0 0 auto; font-size: 18px; padding: 8px 12px; }
+.date-nav-row .date-nav-btn:disabled { opacity: .4; cursor: default; }
+.date-nav-row #addToTraining { flex: 1; margin-top: 0; }
 .mfig-pick .mfig-svg path[data-m] { cursor: pointer; }
 .mfig-pick .mfig-svg path[data-m]:hover { opacity: .75; }
 .mfig-hint { text-align: center; margin: 4px 0 8px; }
@@ -338,7 +331,8 @@ textarea.inp { resize: vertical; }
 .mrow { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; background: var(--bg); border-radius: 8px; }
 .mname { font-weight: 600; }
 .mbadge { font-size: 11px; color: var(--muted); white-space: nowrap; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: var(--m0); }
-.mbadge.hi { background: rgba(249, 115, 22, .18); color: var(--orange); }
+.mbadge.hi { background: rgba(249, 115, 22, .35); color: var(--orange); font-weight: 700; }
+.mbadge.mid { background: rgba(249, 115, 22, .18); color: var(--orange); }
 
 .tech { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
 .tech-row { display: flex; gap: 8px; font-size: 14px; }
