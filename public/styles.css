@@ -312,6 +312,18 @@ textarea.inp { resize: vertical; }
   border-radius: 50%;
 }
 .ex-item .ex-mini:hover ~ .pill { opacity: .6; }
+/* элементы выбора даты в модалке добавления упражнения */
+.date-item {
+  width: 100%;
+  display: flex; justify-content: space-between; align-items: center;
+  border: 1px solid var(--border); background: var(--card);
+  border-radius: 12px; padding: 12px;
+  margin-bottom: 8px; cursor: pointer; text-align: left;
+  box-shadow: var(--shadow);
+}
+.date-item:hover { border-color: var(--orange); }
+.date-label { font-weight: 700; }
+.date-count { color: var(--muted); font-size: 13px; }
 .mfig-pick .mfig-svg path[data-m] { cursor: pointer; }
 .mfig-pick .mfig-svg path[data-m]:hover { opacity: .75; }
 .mfig-hint { text-align: center; margin: 4px 0 8px; }
