@@ -8,10 +8,16 @@ var FB_AVAILABLE = false;
 var FB_auth = null;
 var FB_db = null;
 var FB_authListeners = [];
+var FB_ready = false; // становится true после первого onAuthStateChanged
+var FB_ready_resolvers = [];
+var FB_ready_promise = new Promise(function(resolve) { FB_ready_resolvers.push(resolve); });
 
 var FB = {
   get user() { return FB_auth ? FB_auth.currentUser : null; },
   get AVAILABLE() { return FB_AVAILABLE; },
+  get ready() { return FB_ready; },
+  // Промис, который резолвится после определения статуса авторизации
+  waitReady: function() { return FB_ready_promise; },
   onAuthChange(cb) {
     FB_authListeners.push(cb);
     // Если пользователь уже есть — вызвать callback сразу
@@ -89,6 +95,8 @@ var FB = {
 function initFirebase() {
   if (!FB_CONFIG_REAL) {
     FB_AVAILABLE = false;
+    FB_ready = true; // без Firebase сразу считаем готовыми
+    FB_ready_resolvers.forEach(function(r) { r(); });
     console.info('[FB] конфиг-плейсхолдер — Firebase отключён, работаем только локально');
     return;
   }
@@ -104,7 +112,14 @@ function initFirebase() {
     }).catch((e) => {
       console.warn('[FB] persistence error:', e.message);
     });
-    FB_auth.onAuthStateChanged((u) => FB_authListeners.forEach((cb) => cb(u)));
+    FB_auth.onAuthStateChanged((u) => {
+      // Первый вызов — значит Firebase определил статус авторизации
+      if (!FB_ready) {
+        FB_ready = true;
+        FB_ready_resolvers.forEach(function(r) { r(); });
+      }
+      FB_authListeners.forEach((cb) => cb(u));
+    });
     FB_AVAILABLE = true;
     console.info('[FB] подключён');
   } catch (e) {

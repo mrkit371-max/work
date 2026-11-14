@@ -1481,6 +1481,12 @@ function render(opts = {}) {
   if (state.editing) return;
   // auth gate: если Firebase подключён — управляем видом по состоянию авторизации
   if (FB_AVAILABLE) {
+    if (!FB_ready) {
+      // Firebase ещё определяет статус — показываем загрузку
+      app.innerHTML = '<div class="auth-view"><div class="auth-card"><div style="text-align:center;padding:20px">Загрузка...</div></div></div>';
+      document.body.setAttribute('data-view', 'loading');
+      return;
+    }
     if (!FB.user) {
       state.view = 'auth';
     } else if (state.view === 'auth') {
@@ -1590,5 +1596,8 @@ function onAuthChange(user) {
 // Подписываемся на изменения авторизации
 if (FB_AVAILABLE) FB.onAuthChange(onAuthChange);
 
-render();
+// Первый render — после того как Firebase определит статус авторизации
+FB.waitReady().then(function() {
+  render();
+});
 window.addEventListener('resize', () => { if (state.view === 'progress') render(); });
