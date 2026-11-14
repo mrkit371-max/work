@@ -448,3 +448,94 @@ textarea.inp { resize: vertical; }
 .a2hs[hidden] { display: none; }
 .a2hs .btn { flex: 0 0 auto; }
 .a2hs .uni-x { align-self: center; }
+
+/* ---------- экран входа (Firebase) ---------- */
+.auth-view {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.auth-card {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 24px;
+  width: 100%;
+  max-width: 360px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.08);
+}
+.auth-title { font-size: 1.3rem; font-weight: 700; text-align: center; margin: 0 0 6px; }
+.auth-sub  { font-size: 0.9rem; color: var(--muted); text-align: center; margin: 0 0 18px; }
+.auth-form .lb { display: block; margin-bottom: 12px; }
+.auth-form .inp {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+}
+.auth-form .inp:focus { outline: 2px solid var(--orange); border-color: var(--orange); }
+.auth-primary { width: 100%; margin-top: 8px; }
+.auth-error { color: var(--danger); font-size: 0.9rem; text-align: center; min-height: 18px; margin-bottom: 8px; }
+.auth-divider {
+  text-align: center; color: var(--muted); font-size: 0.85rem; margin: 18px 0 14px;
+  position: relative;
+}
+.auth-divider::before, .auth-divider::after {
+  content: ''; position: absolute; top: 50%; width: 38%; height: 1px; background: var(--border);
+}
+.auth-divider::before { left: 0; }
+.auth-divider::after  { right: 0; }
+.btn.google {
+  width: 100%;
+  background: #ffffff;
+  color: #1f2937;
+  border: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.btn.google:hover { background: #f9fafb; border-color: #d1d5db; }
+.btn.google:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn.google svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+.profile-user {
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--bg);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.profile-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--orange);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.profile-email { font-size: 0.9rem; word-break: break-word; overflow: hidden; text-overflow: ellipsis; }
+.profile-status { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+
+/* скрываем нижнюю навигацию на экране входа */
+[data-view="auth"] #uniNav { display: none; }
+[data-view="auth"] main { padding-top: 0; }

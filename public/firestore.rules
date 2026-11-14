@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /users/{uid} {
+      // пользователь видит и пишет только свои данные
+      allow read, write: if request.auth.uid == uid;
+    }
+    // всё остальное закрыто
+    match /{any=**} {
+      allow read, write: if false;
+    }
+  }
+}

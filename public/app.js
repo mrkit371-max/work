@@ -243,6 +243,10 @@ try {
 const save = () => {
   try { localStorage.setItem(LS_KEY, JSON.stringify(workouts)); }
   catch { alert('Не удалось сохранить данные (localStorage).'); }
+  // синхронизируем с Firestore, если пользователь вошёл
+  if (FB_AVAILABLE && FB.user) {
+    FB.saveAll(FB.user.uid, { workouts, customExercises: loadCustom() }).catch(() => {});
+  }
 };
 
 const state = {
@@ -581,15 +585,17 @@ const applyAutoMeta = (draft) => {
 /* ---------------- РЕДАКТОР ТРЕНИРОВКИ ---------------- */
 const addWorkout = (day) => openEditor({ id: null, date: day, title: '', type: 'Силовая', notes: '', done: false, exercises: [] });
 
-function editWorkout(id) {
+function editWorkout(id, preAdd) {
   const w = findWorkout(id);
   if (!w) return;
-  openEditor(w);
+  openEditor(w, preAdd);
 }
 
-function openEditor(src) {
+function openEditor(src, preAdd) {
   const draft = JSON.parse(JSON.stringify(src));
   if (!draft.id) draft.id = uid();
+  if (preAdd) draft.exercises.push({ name: preAdd, sets: [{ w: 0, r: 0, done: 0, doneDate: null }] }); // упражнение из каталога — в черновик
+  if (draft.title && draft.title.trim()) draft.titleManual = true; // существующее название не перебиваем автозаголовком
   applyAutoMeta(draft); // нормализуем до снимка: окно, где ничего не меняли, не должно требовать подтверждения
   const snapshot = JSON.stringify(draft); // база для проверки «были ли изменения»
   state.editing = draft;
@@ -906,7 +912,8 @@ function viewLibrary() {
 }
 
 function openExDetail(ex, { hideAdd } = {}) {
-  modal(ex.name, {
+  let closeEx; // настоящий обработчик закрытия карточки (window.close() закрывает вкладку — не годится)
+  closeEx = modal(ex.name, {
     buildBody: (b) => {
       // предлагаем только сегодня и будущее: прошедшие дни не предлагаются вовсе
       const today = todayISO();
@@ -959,23 +966,32 @@ function openExDetail(ex, { hideAdd } = {}) {
         renderDateNav();
         $('#addToTraining', b).addEventListener('click', () => {
           const date = getDate();
-          let w = forDay(date)[0];
-          if (!w) {
-            w = { id: uid(), date, title: `${ex.cat}: ${ex.name}`, type: ex.cat === 'Кардио' ? 'Кардио' : 'Силовая', notes: '', done: false, exercises: [] };
-            workouts.push(w);
+          closeEx(); // закрываем карточку упражнения
+          const w = forDay(date)[0];
+          if (w) {
+            // тренировка на этот день уже есть: упражнение попадёт в черновик и сохранится только по «Сохранить»
+            editWorkout(w.id, ex.name);
+            return;
           }
-          w.exercises.push({ name: ex.name, sets: [{ w: 0, r: 0, done: 0, doneDate: null }] });
-          save();
-          state.dayISO = date;
-          editWorkout(w.id);
+          // тренировки нет: открываем черновик новой — создастся только при нажатии «Сохранить», «Отмена» ничего не меняет
+          openEditor({
+            id: null,
+            date,
+            title: '',
+            titleManual: false,
+            type: ex.cat === 'Кардио' ? 'Кардио' : 'Силовая',
+            notes: '',
+            done: false,
+            exercises: [{ name: ex.name, sets: [{ w: 0, r: 0, done: 0, doneDate: null }] }],
+          });
         });
       }
       if (ex.custom) {
-        $('#exEdit', b).addEventListener('click', () => { close(); customEditor(ex.name, () => render()); });
+        $('#exEdit', b).addEventListener('click', () => { closeEx(); customEditor(ex.name, () => render()); });
         $('#exDelBtn', b).addEventListener('click', () => {
           confirmDialog('Удалить упражнение?', `«${ex.name}» будет удалено из справочника (в сохранённых тренировках останется).`, () => {
             localStorage.setItem(CUSTOM_KEY, JSON.stringify(loadCustom().filter((x) => x.name !== ex.name)));
-            close();
+            closeEx();
             render();
           });
         });
@@ -1221,12 +1237,57 @@ function goToDay(iso) {
   gotoView('day');
 }
 
+/* ---------------- ЭКРАН ВХОДА ---------------- */
+function viewAuth() {
+  const app = $('#app');
+  app.innerHTML = `
+    <div class="auth-view">
+      <div class="auth-card">
+        <h1 class="auth-title">Войти в Календарь</h1>
+        <p class="auth-sub">Тренировки будут храниться в облаке и будут доступны с любого устройства</p>
+        <div class="auth-error" id="authErr"></div>
+        <form class="auth-form" id="authForm" autocomplete="on">
+          <label class="lb"><input class="inp" id="authEmail" type="email" placeholder="Email" autocomplete="email" required></label>
+          <label class="lb"><input class="inp" id="authPass" type="password" placeholder="Пароль" autocomplete="current-password" required minlength="6"></label>
+          <button type="submit" class="btn primary auth-primary">Войти</button>
+        </form>
+        <div class="auth-divider">или</div>
+        <button type="button" class="btn google" id="authGoogle">
+          <svg viewBox="0 0 24 24"><path fill="#4285f4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34a853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#fbbc05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#ea4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          Войти через Google
+        </button>
+      </div>
+    </div>`;
+  const setErr = (msg) => { const e = $('#authErr'); if (e) e.textContent = msg || ''; };
+  $('#authForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const email = $('#authEmail').value.trim();
+    const pass = $('#authPass').value;
+    if (!email || !pass) { setErr('Введите email и пароль'); return; }
+    FB.loginEmail(email, pass).catch((err) => setErr(err.message || 'Ошибка входа'));
+  });
+  $('#authGoogle').addEventListener('click', () => FB.loginGoogle().catch((err) => setErr(err.message || 'Ошибка входа через Google')));
+}
+
 /* ---------------- ПРОФИЛЬ / НАСТРОЙКИ ---------------- */
 function viewSettings() {
   const app = $('#app');
   const pr = state.profile;
   app.innerHTML = `
     <header class="topbar"><div class="topbar-l"><div class="topbar-title">Профиль</div><div class="topbar-sub">Цели, уведомления, данные</div></div></header>
+    ${FB_AVAILABLE
+      ? `<div class="sec">
+          <div class="sec-title">Аккаунт</div>
+          <div class="profile-user">
+            <div class="profile-avatar">${esc((FB.user?.email || '?').charAt(0).toUpperCase())}</div>
+            <div><div class="profile-email">${esc(FB.user?.email || '')}</div><div class="profile-status">Подключено к облаку</div></div>
+          </div>
+          <button class="btn wide subtle" type="button" id="authLogoutBtn">Выйти из аккаунта</button>
+        </div>`
+      : `<div class="sec">
+          <div class="sec-title">Аккаунт</div>
+          <p class="hint">Firebase не подключён: подставьте значения в <b>firebase-config.js</b></p>
+        </div>`}
     <div class="sec">
       <label class="lb">Имя<input class="inp" id="pfName" placeholder="Ваше имя" value="${esc(pr.name || '')}"></label>
       <div class="row2">
@@ -1277,6 +1338,9 @@ function viewSettings() {
     btn.disabled = true;
     setTimeout(() => { btn.textContent = 'Сохранить'; btn.disabled = false; }, 1500);
   });
+  if (FB_AVAILABLE) {
+    $('#authLogoutBtn')?.addEventListener('click', () => FB.logout().catch(() => {}));
+  }
 
   const bmiHost = $('#bmiBox');
   /* Категории ИМТ — по классификации ВОЗ для взрослых (от 20 лет):
@@ -1415,9 +1479,19 @@ function confirmDialog(title, text, onYes, yesLabel) {
 function render(opts = {}) {
   const app = $('#app');
   if (state.editing) return;
+  // auth gate: если Firebase подключён — управляем видом по состоянию авторизации
+  if (FB_AVAILABLE) {
+    if (!FB.user) {
+      state.view = 'auth';
+    } else if (state.view === 'auth') {
+      // пользователь вошёл — выходим с экрана входа на календарь
+      state.view = 'calendar';
+    }
+  }
   document.body.setAttribute('data-view', state.view);
   $$('#uniNav .uni-btn').forEach((b) => b.classList.toggle('uni-on', b.dataset.view === state.view));
-  if (state.view === 'calendar') viewCalendar();
+  if (state.view === 'auth') viewAuth();
+  else if (state.view === 'calendar') viewCalendar();
   else if (state.view === 'day') viewDay();
   else if (state.view === 'library') viewLibrary();
   else if (state.view === 'progress') viewProgress();
@@ -1480,5 +1554,41 @@ if ('serviceWorker' in navigator) {
     reg?.update?.();
   }).catch(() => { /* dev server w/o sw */ });
 }
+
+/* ---------------- FIREBASE: авторизация и синхронизация ---------------- */
+function onAuthChange(user) {
+  console.log('[Auth] onAuthChange:', user ? user.email : 'null');
+  if (!user) {
+    // вышли — остаёмся с локальными данными
+    render();
+    return;
+  }
+  // вошли — грузим данные из облака
+  FB.loadAll(user.uid).then(({ workouts: cloudW, customExercises: cloudC }) => {
+    console.log('[Auth] loaded from cloud:', cloudW.length, 'workouts,', cloudC.length, 'custom');
+    let migrated = false;
+    if (cloudW.length) {
+      workouts = cloudW;
+      try { localStorage.setItem(LS_KEY, JSON.stringify(workouts)); } catch {}
+    } else {
+      // облако пустое — миграция из localStorage (первый вход пользователя)
+      const localW = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+      if (localW.length) { workouts = localW; migrated = true; }
+    }
+    if (cloudC.length) {
+      localStorage.setItem(CUSTOM_KEY, JSON.stringify(cloudC));
+    } else {
+      const localC = loadCustom();
+      if (localC.length) migrated = true;
+    }
+    if (migrated) {
+      FB.saveAll(user.uid, { workouts, customExercises: loadCustom() }).catch(() => {});
+    }
+    render();
+  });
+}
+// Подписываемся на изменения авторизации
+if (FB_AVAILABLE) FB.onAuthChange(onAuthChange);
+
 render();
 window.addEventListener('resize', () => { if (state.view === 'progress') render(); });
