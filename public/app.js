@@ -1249,7 +1249,7 @@ function viewAuth() {
         <form class="auth-form" id="authForm" autocomplete="on">
           <label class="lb"><input class="inp" id="authEmail" type="email" placeholder="Email" autocomplete="email" required></label>
           <label class="lb"><input class="inp" id="authPass" type="password" placeholder="Пароль" autocomplete="current-password" required minlength="6"></label>
-          <button type="submit" class="btn primary auth-primary">Войти</button>
+          <button type="submit" class="btn primary auth-primary">Войти / Регистрация</button>
         </form>
         <div class="auth-divider">или</div>
         <button type="button" class="btn google" id="authGoogle">

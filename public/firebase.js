@@ -24,9 +24,21 @@ var FB = {
     try {
       await FB_auth.signInWithEmailAndPassword(email, password);
     } catch (e) {
-      // переводим типовые ошибки на русский
       const code = e.code;
-      if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') throw new Error('Неверный email или пароль');
+      // Если пользователь не найден — пробуем зарегистрировать
+      if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') {
+        try {
+          await FB_auth.createUserWithEmailAndPassword(email, password);
+          return;
+        } catch (e2) {
+          const code2 = e2.code;
+          if (code2 === 'auth/email-already-in-use') throw new Error('Email уже занят');
+          if (code2 === 'auth/weak-password') throw new Error('Пароль слишком простой (мин. 6 символов)');
+          throw new Error(e2.message || 'Ошибка регистрации');
+        }
+      }
+      // Другие ошибки входа
+      if (code === 'auth/wrong-password') throw new Error('Неверный пароль');
       if (code === 'auth/invalid-email') throw new Error('Неверный формат email');
       if (code === 'auth/too-many-requests') throw new Error('Слишком много попыток, попробуй позже');
       throw new Error(e.message || 'Ошибка входа');
